@@ -12,17 +12,26 @@ echo "================================================================="
 echo "AudioGuard — macOS Standalone Build"
 echo "================================================================="
 
+# Detect virtual environment Python or fallback
+if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
+  PYTHON="$SCRIPT_DIR/.venv/bin/python"
+  PYINSTALLER="$SCRIPT_DIR/.venv/bin/pyinstaller"
+else
+  PYTHON="python3"
+  PYINSTALLER="pyinstaller"
+fi
+
 # 1. Clean previous build artifacts
 echo "[1/6] Cleaning previous build artifacts..."
 rm -rf build dist dist-dmg dist-installer
 
 # 2. Verify Audio Engine Crash Resilience
 echo "[2/6] Running automated audio engine & crash resilience verification..."
-python3 verify_engine.py
+"$PYTHON" verify_engine.py
 
 # 3. Compile standalone macOS .app bundle via PyInstaller
 echo "[3/6] Compiling AudioGuard.app via PyInstaller..."
-pyinstaller --noconfirm --onedir --windowed \
+"$PYINSTALLER" --noconfirm --onedir --windowed \
   --name "AudioGuard" \
   --collect-all "customtkinter" \
   --collect-all "sounddevice" \

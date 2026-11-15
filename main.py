@@ -11,6 +11,7 @@ High-Performance, Zero-Lag Desktop Utility (customtkinter)
 - Volunteer-Proof System Tray Minimization with IPC Auto-Restore
 """
 
+from __future__ import annotations
 import os
 import sys
 import time
@@ -19,6 +20,7 @@ import threading
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
