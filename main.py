@@ -32,7 +32,8 @@ from config_manager import (
     ConfigManager, setup_logging, logger,
     is_autostart_enabled, set_autostart,
     SingleInstanceLock, get_free_disk_space_gb, get_disk_safety_floors,
-    cleanup_old_backups
+    cleanup_old_backups, list_available_profiles, delete_profile,
+    create_desktop_shortcut, get_default_backup_folder
 )
 from audio_engine import AudioEngine
 from scheduler import SchedulerEngine
@@ -77,6 +78,19 @@ def signal_existing_instance(profile: str = "default") -> bool:
         return True
     except Exception as e:
         logger.debug("Could not signal existing instance [%s] on port %d: %s", profile, port, e)
+        return False
+
+
+def is_profile_running(profile: str = "default") -> bool:
+    """Checks whether an instance for the given profile is currently running."""
+    port = get_ipc_port(profile)
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.2)
+        s.connect(("127.0.0.1", port))
+        s.close()
+        return True
+    except Exception:
         return False
 
 
@@ -772,7 +786,7 @@ class AudioGuardApp:
         self.lang_menu.set(cur_lang_display)
         self.lang_menu.pack(side="left")
 
-        self.startup_var = ctk.BooleanVar(value=is_autostart_enabled())
+        self.startup_var = ctk.BooleanVar(value=is_autostart_enabled(profile=self.profile))
         os_label = "Windows" if sys.platform == "win32" else "macOS" if sys.platform == "darwin" else "System"
         self.startup_chk = ctk.CTkCheckBox(
             opts_frame,
@@ -819,16 +833,295 @@ class AudioGuardApp:
         )
         self.open_log_btn.pack(side="left")
 
-        # Profile Info Row
-        prof_display = self.profile if self.profile != "default" else "Default"
-        self.profile_info_lbl = ctk.CTkLabel(
-            opts_frame,
-            text=f"🏷️  {t('opt_profile')} {prof_display}  (--profile <name>)",
+        # Section 5: Audio Profiles (Multi-Tenancy / Second Audio Input)
+        self.sec_prof_lbl = ctk.CTkLabel(
+            self.settings_scroll,
+            text=t("sec_profiles"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLOR_TEXT_WHITE,
+            anchor="w"
+        )
+        self.sec_prof_lbl.pack(fill="x", padx=16, pady=(14, 2))
+
+        self.sec_prof_desc = ctk.CTkLabel(
+            self.settings_scroll,
+            text=t("sec_profiles_desc"),
             font=ctk.CTkFont(size=11),
             text_color=COLOR_TEXT_MUTED,
             anchor="w"
         )
-        self.profile_info_lbl.pack(fill="x", pady=(6, 2))
+        self.sec_prof_desc.pack(fill="x", padx=16, pady=(0, 8))
+
+        # Container frame for profile list rows
+        self.profiles_container = ctk.CTkFrame(
+            self.settings_scroll,
+            fg_color=COLOR_PANEL,
+            corner_radius=8,
+            border_width=1,
+            border_color=COLOR_PANEL_BORDER
+        )
+        self.profiles_container.pack(fill="x", padx=16, pady=(0, 10))
+
+        # Add Profile Button
+        self.add_profile_btn = ctk.CTkButton(
+            self.settings_scroll,
+            text=t("btn_add_profile"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            height=30,
+            fg_color="#2A2A30",
+            hover_color=COLOR_PANEL_BORDER,
+            command=self.on_show_add_profile_dialog
+        )
+        self.add_profile_btn.pack(anchor="w", padx=16, pady=(0, 20))
+
+        self._populate_profiles_list()
+
+    def _populate_profiles_list(self):
+        """Populates the profiles container with cards for each configured profile."""
+        for child in self.profiles_container.winfo_children():
+            child.destroy()
+
+        profiles = list_available_profiles()
+        for idx, prof in enumerate(profiles):
+            pid = prof["id"]
+            pname = prof["name"]
+            is_active_window = (pid == self.profile)
+            running = is_active_window or is_profile_running(pid)
+
+            row = ctk.CTkFrame(self.profiles_container, fg_color="transparent")
+            row.pack(fill="x", padx=12, pady=6)
+
+            # Left side: Name, Active Badge, Status
+            left_f = ctk.CTkFrame(row, fg_color="transparent")
+            left_f.pack(side="left", fill="x", expand=True)
+
+            status_color = COLOR_GREEN if running else COLOR_TEXT_MUTED
+            status_text = t("status_running") if running else t("status_inactive")
+            if is_active_window:
+                name_display = f"{pname}  {t('active_badge')}"
+            else:
+                name_display = pname
+
+            ctk.CTkLabel(
+                left_f,
+                text=name_display,
+                font=ctk.CTkFont(size=12, weight="bold" if is_active_window else "normal"),
+                text_color=COLOR_TEXT_WHITE if is_active_window else COLOR_TEXT_MUTED,
+                anchor="w"
+            ).pack(side="left", padx=(0, 10))
+
+            ctk.CTkLabel(
+                left_f,
+                text=status_text,
+                font=ctk.CTkFont(size=10),
+                text_color=status_color
+            ).pack(side="left")
+
+            # Right side: Action buttons
+            right_f = ctk.CTkFrame(row, fg_color="transparent")
+            right_f.pack(side="right")
+
+            # 1. Desktop Shortcut button
+            ctk.CTkButton(
+                right_f,
+                text=f"🖥️ {t('btn_shortcut')}",
+                width=115,
+                height=24,
+                font=ctk.CTkFont(size=10),
+                fg_color="#2A2A30",
+                hover_color=COLOR_PANEL_BORDER,
+                command=lambda p_id=pid, p_name=pname: self._on_create_profile_shortcut(p_id, p_name)
+            ).pack(side="left", padx=(0, 6))
+
+            # 2. Launch / Show button (not needed for active window)
+            if not is_active_window:
+                ctk.CTkButton(
+                    right_f,
+                    text=t("btn_open_window"),
+                    width=105,
+                    height=24,
+                    font=ctk.CTkFont(size=10, weight="bold"),
+                    fg_color=COLOR_BLUE if not running else COLOR_GREEN,
+                    hover_color="#2563EB",
+                    command=lambda p_id=pid: self._on_launch_profile_instance(p_id)
+                ).pack(side="left", padx=(0, 6))
+
+            # 3. Delete button (only for custom inactive profiles)
+            if pid != "default" and not is_active_window:
+                del_btn = ctk.CTkButton(
+                    right_f,
+                    text="✕",
+                    width=24,
+                    height=24,
+                    font=ctk.CTkFont(size=11),
+                    fg_color="#2A2A30",
+                    hover_color="#7F1D1D",
+                    command=lambda p_id=pid, p_name=pname: self._on_delete_profile(p_id, p_name)
+                )
+                if running:
+                    del_btn.configure(state="disabled", text_color="#555555")
+                del_btn.pack(side="left")
+
+    def _on_create_profile_shortcut(self, profile_id: str, display_name: str):
+        success = create_desktop_shortcut(profile=profile_id, display_name=display_name)
+        if success:
+            messagebox.showinfo("Shortcut Created", f"Desktop shortcut created successfully for '{display_name}'!")
+        else:
+            messagebox.showerror("Error", f"Could not create desktop shortcut for '{display_name}'.")
+
+    def _on_launch_profile_instance(self, profile_id: str):
+        if is_profile_running(profile_id):
+            signal_existing_instance(profile_id)
+        else:
+            if getattr(sys, "frozen", False):
+                cmd = [sys.executable, "--profile", profile_id]
+            elif sys.platform == "darwin" and Path("/Applications/AudioGuard.app").exists():
+                cmd = ["open", "-n", "/Applications/AudioGuard.app", "--args", "--profile", profile_id]
+            else:
+                cmd = [sys.executable, os.path.abspath(sys.argv[0]), "--profile", profile_id]
+            try:
+                subprocess.Popen(cmd)
+                self.root.after(1000, self._populate_profiles_list)
+            except Exception as e:
+                logger.error("Failed to launch profile %s: %s", profile_id, e)
+                messagebox.showerror("Error", f"Failed to launch profile window:\n{e}")
+
+    def _on_delete_profile(self, profile_id: str, display_name: str):
+        if is_profile_running(profile_id):
+            messagebox.showwarning("Profile Running", f"Profile '{display_name}' is currently running.\nPlease close its window before deleting it.")
+            return
+
+        confirm = messagebox.askyesno(
+            t("dlg_delete_prof_title"),
+            t("dlg_delete_prof_msg", name=display_name),
+            icon="warning"
+        )
+        if confirm:
+            delete_profile(profile_id)
+            self._populate_profiles_list()
+
+    def on_show_add_profile_dialog(self):
+        """Displays modal dialog to configure and launch a Second Audio Input profile."""
+        dlg = ctk.CTkToplevel(self.root)
+        dlg.title(t("dlg_add_prof_title"))
+        dlg.geometry("480x440")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        try:
+            x = self.root.winfo_x() + (self.root.winfo_width() - 480) // 2
+            y = self.root.winfo_y() + (self.root.winfo_height() - 440) // 2
+            dlg.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+
+        content = ctk.CTkFrame(dlg, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=20, pady=16)
+
+        # 1. Profile Name
+        ctk.CTkLabel(content, text=t("lbl_prof_name"), font=ctk.CTkFont(size=12, weight="bold"), anchor="w").pack(fill="x", pady=(0, 2))
+        name_entry = ctk.CTkEntry(content, font=ctk.CTkFont(size=12))
+        name_entry.insert(0, "Second Audio Input")
+        name_entry.pack(fill="x", pady=(0, 10))
+
+        # 2. Select Audio Input Device
+        ctk.CTkLabel(content, text=t("lbl_prof_device"), font=ctk.CTkFont(size=12, weight="bold"), anchor="w").pack(fill="x", pady=(0, 2))
+        raw_devices = self.audio.get_input_devices()
+        device_names = [d["name"] for d in raw_devices] if raw_devices else ["Default Audio Device"]
+        current_used_device = self.config.get("input_device_name", "")
+        sel_idx = 0
+        if len(device_names) > 1:
+            for i, d in enumerate(device_names):
+                if d != current_used_device:
+                    sel_idx = i
+                    break
+        device_menu = ctk.CTkOptionMenu(content, values=device_names, font=ctk.CTkFont(size=11))
+        device_menu.set(device_names[sel_idx])
+        device_menu.pack(fill="x", pady=(0, 10))
+
+        # 3. Storage Folder
+        ctk.CTkLabel(content, text=t("lbl_prof_folder"), font=ctk.CTkFont(size=12, weight="bold"), anchor="w").pack(fill="x", pady=(0, 2))
+        folder_frame = ctk.CTkFrame(content, fg_color="transparent")
+        folder_frame.pack(fill="x", pady=(0, 12))
+
+        def_folder = self.config.get("backup_folder", "") or get_default_backup_folder()
+        suggested_folder = str(Path(def_folder) / "Second_Audio_Input")
+        folder_entry = ctk.CTkEntry(folder_frame, font=ctk.CTkFont(size=11))
+        folder_entry.insert(0, suggested_folder)
+        folder_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        def _browse_dlg_folder():
+            chosen = filedialog.askdirectory(initialdir=def_folder, title="Select Storage Directory")
+            if chosen:
+                folder_entry.delete(0, "end")
+                folder_entry.insert(0, chosen)
+
+        ctk.CTkButton(folder_frame, text=t("btn_browse"), width=70, font=ctk.CTkFont(size=11), command=_browse_dlg_folder).pack(side="left")
+
+        # 4. Checkboxes
+        launch_now_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(content, text=t("chk_launch_now"), variable=launch_now_var, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 4))
+
+        shortcut_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(content, text=t("chk_create_shortcut"), variable=shortcut_var, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 4))
+
+        autostart_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(content, text=t("chk_autostart_boot"), variable=autostart_var, font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(0, 14))
+
+        # 5. Buttons
+        btn_box = ctk.CTkFrame(content, fg_color="transparent")
+        btn_box.pack(fill="x")
+
+        def _on_confirm_create():
+            raw_name = name_entry.get().strip()
+            if not raw_name:
+                raw_name = "Second Audio Input"
+
+            raw_slug = re.sub(r'[^a-zA-Z0-9_\-]', '_', raw_name.lower()).strip('_')
+            slug = raw_slug if raw_slug else f"second_input_{int(time.time()) % 1000}"
+            if slug == "default":
+                slug = "second_input"
+
+            chosen_dev = device_menu.get()
+            chosen_folder = folder_entry.get().strip() or def_folder
+
+            new_mgr = ConfigManager(profile=slug)
+            new_mgr.set("profile_display_name", raw_name)
+            new_mgr.set("input_device_name", chosen_dev)
+            new_mgr.set("backup_folder", chosen_folder)
+            new_mgr.set("filename_pattern", f"Audio_Backup_{slug}_{{date}}_{{time}}")
+            new_mgr.save()
+
+            if autostart_var.get():
+                set_autostart(True, profile=slug)
+
+            if shortcut_var.get():
+                create_desktop_shortcut(profile=slug, display_name=raw_name)
+
+            dlg.destroy()
+            self._populate_profiles_list()
+
+            if launch_now_var.get():
+                self.root.after(300, lambda: self._on_launch_profile_instance(slug))
+
+        ctk.CTkButton(
+            btn_box,
+            text=t("btn_create_profile"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color=COLOR_GREEN,
+            hover_color=COLOR_GREEN_HOVER,
+            command=_on_confirm_create
+        ).pack(side="right")
+
+        ctk.CTkButton(
+            btn_box,
+            text="Cancel",
+            font=ctk.CTkFont(size=12),
+            fg_color="#2A2A30",
+            hover_color=COLOR_PANEL_BORDER,
+            command=dlg.destroy
+        ).pack(side="right", padx=(0, 8))
 
     def _bind_touchpad_scroll(self):
         """
@@ -850,8 +1143,14 @@ class AudioGuardApp:
                 delta_y -= 0x10000
 
             if delta_y != 0:
-                # delta_y < 0 is swipe up / scroll down; canvas.yview_scroll takes positive units for down
-                canvas.yview_scroll(-delta_y, "units")
+                bbox = canvas.bbox("all")
+                if bbox:
+                    total_h = bbox[3] - bbox[1]
+                    if total_h > 0:
+                        top, _ = canvas.yview()
+                        # Smooth 1:1 pixel-to-trackpad scaling (prevents high-frequency multi-line jumping)
+                        fraction_step = (-delta_y * 0.75) / total_h
+                        canvas.yview_moveto(top + fraction_step)
 
         try:
             self.root.bind_all("<TouchpadScroll>", _on_touchpad_scroll, add="+")
@@ -1391,7 +1690,7 @@ class AudioGuardApp:
 
     def on_startup_toggled(self):
         enabled = self.startup_var.get()
-        set_autostart(enabled)
+        set_autostart(enabled, profile=self.profile)
         self.config.set("auto_start_on_boot", enabled)
 
     def _on_naming_pattern_changed(self, event=None):
@@ -1519,9 +1818,16 @@ class AudioGuardApp:
             self.monitor_switch.configure(text=f"🎧 {t('opt_headphone')}")
         if hasattr(self, "open_log_btn"):
             self.open_log_btn.configure(text=t("btn_open_log"))
-        if hasattr(self, "profile_info_lbl"):
-            prof_display = self.profile if self.profile != "default" else "Default"
-            self.profile_info_lbl.configure(text=f"🏷️  {t('opt_profile')} {prof_display}  (--profile <name>)")
+
+        # Settings View - Section 5 (Audio Profiles)
+        if hasattr(self, "sec_prof_lbl"):
+            self.sec_prof_lbl.configure(text=t("sec_profiles"))
+        if hasattr(self, "sec_prof_desc"):
+            self.sec_prof_desc.configure(text=t("sec_profiles_desc"))
+        if hasattr(self, "add_profile_btn"):
+            self.add_profile_btn.configure(text=t("btn_add_profile"))
+        if hasattr(self, "profiles_container"):
+            self._populate_profiles_list()
 
         # Re-populate schedule slot rows with localized day button labels
         self._populate_slot_rows()

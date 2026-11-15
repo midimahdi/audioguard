@@ -251,29 +251,33 @@ REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_REG_NAME = "AudioGuard"
 OLD_APP_REG_NAME = "MosqueAudioGuard"
 
-def _get_macos_launch_agent_path() -> Path:
-    return Path.home() / "Library" / "LaunchAgents" / "com.mahdi.audioguard.plist"
+def _get_macos_launch_agent_path(profile: str = "default") -> Path:
+    if profile == "default":
+        return Path.home() / "Library" / "LaunchAgents" / "com.mahdi.audioguard.plist"
+    return Path.home() / "Library" / "LaunchAgents" / f"com.mahdi.audioguard.{profile}.plist"
 
-def set_macos_startup(enabled: bool) -> bool:
+def set_macos_startup(enabled: bool, profile: str = "default") -> bool:
     """Enables or disables auto-start on macOS boot via LaunchAgent plist with --minimized flag."""
-    plist_path = _get_macos_launch_agent_path()
+    plist_path = _get_macos_launch_agent_path(profile=profile)
     try:
         if enabled:
             plist_path.parent.mkdir(parents=True, exist_ok=True)
+            prof_args = f"        <string>--profile</string>\n        <string>{profile}</string>\n" if profile != "default" else ""
             if getattr(sys, "frozen", False):
                 exec_target = sys.executable
-                args_xml = f"        <string>{exec_target}</string>\n        <string>--minimized</string>"
+                args_xml = f"        <string>{exec_target}</string>\n{prof_args}        <string>--minimized</string>"
             else:
                 exec_target = sys.executable
                 script_path = os.path.abspath(sys.argv[0])
-                args_xml = f"        <string>{exec_target}</string>\n        <string>{script_path}</string>\n        <string>--minimized</string>"
+                args_xml = f"        <string>{exec_target}</string>\n        <string>{script_path}</string>\n{prof_args}        <string>--minimized</string>"
 
+            label = "com.mahdi.audioguard" if profile == "default" else f"com.mahdi.audioguard.{profile}"
             content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.mahdi.audioguard</string>
+    <string>{label}</string>
     <key>ProgramArguments</key>
     <array>
 {args_xml}
@@ -286,86 +290,202 @@ def set_macos_startup(enabled: bool) -> bool:
 </plist>
 """
             plist_path.write_text(content, encoding="utf-8")
-            logger.info("macOS Startup LaunchAgent enabled: %s", plist_path)
+            logger.info("macOS Startup LaunchAgent enabled for [%s]: %s", profile, plist_path)
         else:
             if plist_path.exists():
                 plist_path.unlink()
-                logger.info("macOS Startup LaunchAgent disabled: %s", plist_path)
+                logger.info("macOS Startup LaunchAgent disabled for [%s]: %s", profile, plist_path)
         return True
     except Exception as e:
-        logger.error("Failed to update macOS LaunchAgent: %s", e)
+        logger.error("Failed to update macOS LaunchAgent for [%s]: %s", profile, e)
         return False
 
-def is_macos_startup_enabled() -> bool:
+def is_macos_startup_enabled(profile: str = "default") -> bool:
     """Checks whether macOS LaunchAgent exists."""
-    return _get_macos_launch_agent_path().exists()
+    return _get_macos_launch_agent_path(profile=profile).exists()
 
-def set_windows_startup(enabled: bool) -> bool:
+def set_windows_startup(enabled: bool, profile: str = "default") -> bool:
     """Enables or disables auto-start on Windows boot via HKCU\\...\\Run with --minimized flag."""
     if sys.platform != "win32":
         return False
     try:
         import winreg
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_SET_VALUE | winreg.KEY_READ)
-        # Always clean up legacy key if present
-        try:
-            winreg.DeleteValue(key, OLD_APP_REG_NAME)
-        except FileNotFoundError:
-            pass
+        reg_name = APP_REG_NAME if profile == "default" else f"{APP_REG_NAME}_{profile}"
+        
+        # Always clean up legacy key if present on default
+        if profile == "default":
+            try:
+                winreg.DeleteValue(key, OLD_APP_REG_NAME)
+            except FileNotFoundError:
+                pass
 
         if enabled:
-            # Determine executable path and include --minimized flag so it starts in system tray
             if getattr(sys, "frozen", False):
-                cmd_line = f'"{sys.executable}" --minimized'
+                cmd_line = f'"{sys.executable}"'
             else:
-                cmd_line = f'"{sys.executable}" "{os.path.abspath(sys.argv[0])}" --minimized'
-            winreg.SetValueEx(key, APP_REG_NAME, 0, winreg.REG_SZ, cmd_line)
-            logger.info("Windows Startup enabled with --minimized: %s", cmd_line)
+                cmd_line = f'"{sys.executable}" "{os.path.abspath(sys.argv[0])}"'
+            if profile != "default":
+                cmd_line += f' --profile {profile}'
+            cmd_line += ' --minimized'
+            winreg.SetValueEx(key, reg_name, 0, winreg.REG_SZ, cmd_line)
+            logger.info("Windows Startup enabled for [%s]: %s", profile, cmd_line)
         else:
             try:
-                winreg.DeleteValue(key, APP_REG_NAME)
-                logger.info("Windows Startup disabled")
+                winreg.DeleteValue(key, reg_name)
+                logger.info("Windows Startup disabled for [%s]", profile)
             except FileNotFoundError:
                 pass
         winreg.CloseKey(key)
         return True
     except Exception as e:
-        logger.error("Failed to update Windows Run registry key: %s", e)
+        logger.error("Failed to update Windows Run registry key for [%s]: %s", profile, e)
         return False
 
-def is_windows_startup_enabled() -> bool:
+def is_windows_startup_enabled(profile: str = "default") -> bool:
     """Checks whether the application is registered to start on Windows boot."""
     if sys.platform != "win32":
         return False
     try:
         import winreg
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_RUN_KEY, 0, winreg.KEY_READ)
+        reg_name = APP_REG_NAME if profile == "default" else f"{APP_REG_NAME}_{profile}"
         try:
-            val, _ = winreg.QueryValueEx(key, APP_REG_NAME)
+            val, _ = winreg.QueryValueEx(key, reg_name)
             winreg.CloseKey(key)
             return bool(val)
         except FileNotFoundError:
             winreg.CloseKey(key)
             return False
     except Exception as e:
-        logger.error("Error reading Windows Run registry key: %s", e)
+        logger.error("Error reading Windows Run registry key for [%s]: %s", profile, e)
         return False
 
-def set_autostart(enabled: bool) -> bool:
+def set_autostart(enabled: bool, profile: str = "default") -> bool:
     """Cross-platform startup registration (Windows Registry or macOS LaunchAgent)."""
     if sys.platform == "win32":
-        return set_windows_startup(enabled)
+        return set_windows_startup(enabled, profile=profile)
     elif sys.platform == "darwin":
-        return set_macos_startup(enabled)
+        return set_macos_startup(enabled, profile=profile)
     return False
 
-def is_autostart_enabled() -> bool:
+def is_autostart_enabled(profile: str = "default") -> bool:
     """Cross-platform check for startup registration."""
     if sys.platform == "win32":
-        return is_windows_startup_enabled()
+        return is_windows_startup_enabled(profile=profile)
     elif sys.platform == "darwin":
-        return is_macos_startup_enabled()
+        return is_macos_startup_enabled(profile=profile)
     return False
+
+def create_desktop_shortcut(profile: str = "default", display_name: str = "") -> bool:
+    """Creates a Desktop shortcut for the specified profile."""
+    label = display_name if display_name else ("AudioGuard" if profile == "default" else f"AudioGuard - {profile}")
+    
+    if sys.platform == "win32":
+        try:
+            import subprocess
+            if getattr(sys, "frozen", False):
+                target = sys.executable
+                args = f'--profile {profile}' if profile != "default" else ''
+                icon = sys.executable
+            else:
+                target = sys.executable
+                main_py = os.path.abspath(sys.argv[0])
+                args = f'"{main_py}" --profile {profile}' if profile != "default" else f'"{main_py}"'
+                icon = sys.executable
+
+            ps_script = f'''
+            $ws = New-Object -ComObject WScript.Shell
+            $desktop = [Environment]::GetFolderPath("Desktop")
+            $shortcut = $ws.CreateShortcut([System.IO.Path]::Combine($desktop, "{label}.lnk"))
+            $shortcut.TargetPath = "{target}"
+            $shortcut.Arguments = "{args}"
+            $shortcut.IconLocation = "{icon},0"
+            $shortcut.Description = "AudioGuard - {label}"
+            $shortcut.Save()
+            '''
+            subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            logger.info("Created desktop shortcut on Windows: %s.lnk", label)
+            return True
+        except Exception as e:
+            logger.error("Failed to create desktop shortcut on Windows: %s", e)
+            return False
+            
+    elif sys.platform == "darwin":
+        try:
+            desktop = Path.home() / "Desktop"
+            shortcut_file = desktop / f"{label}.command"
+            app_path = "/Applications/AudioGuard.app"
+            if Path(app_path).exists():
+                arg_part = f' --args --profile "{profile}"' if profile != "default" else ''
+                content = f'#!/bin/bash\nopen -n "{app_path}"{arg_part}\n'
+            else:
+                script_path = os.path.abspath(sys.argv[0])
+                arg_part = f' --profile "{profile}"' if profile != "default" else ''
+                content = f'#!/bin/bash\n"{sys.executable}" "{script_path}"{arg_part}\n'
+            shortcut_file.write_text(content, encoding="utf-8")
+            shortcut_file.chmod(0o755)
+            logger.info("Created desktop shortcut on macOS: %s", shortcut_file)
+            return True
+        except Exception as e:
+            logger.error("Failed to create desktop shortcut on macOS: %s", e)
+            return False
+            
+    return False
+
+def list_available_profiles() -> List[Dict[str, Any]]:
+    """Scans application directory and returns all configured profiles."""
+    app_dir = get_app_dir()
+    profiles = []
+
+    def_path = app_dir / "config.json"
+    def_name = "Default"
+    if def_path.exists():
+        try:
+            with open(def_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                def_name = data.get("profile_display_name", "Default")
+        except Exception:
+            pass
+    profiles.append({
+        "id": "default",
+        "name": def_name,
+        "config_path": str(def_path)
+    })
+
+    for p in sorted(app_dir.glob("config_*.json")):
+        slug = p.stem[len("config_"):]
+        if not slug:
+            continue
+        display_name = slug.replace("_", " ").title()
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                display_name = data.get("profile_display_name", display_name)
+        except Exception:
+            pass
+        profiles.append({
+            "id": slug,
+            "name": display_name,
+            "config_path": str(p)
+        })
+
+    return profiles
+
+def delete_profile(profile_id: str) -> bool:
+    """Deletes profile configuration file and associated startup entry."""
+    if profile_id == "default":
+        return False
+    app_dir = get_app_dir()
+    cfg_file = app_dir / f"config_{profile_id}.json"
+    try:
+        if cfg_file.exists():
+            cfg_file.unlink()
+        set_autostart(False, profile=profile_id)
+        return True
+    except Exception as e:
+        logger.error("Failed to delete profile %s: %s", profile_id, e)
+        return False
 
 
 # -------------------------------------------------------------
