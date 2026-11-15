@@ -9,7 +9,7 @@
 [![Downloads](https://img.shields.io/github/downloads/midimahdi/audioguard/total?color=blue&label=Downloads)](https://github.com/midimahdi/audioguard/releases)
 [![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-3B82F6)](https://github.com/midimahdi/audioguard/releases/latest)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/midimahdi/audioguard/build.yml?branch=main&label=CI%2FCD)](https://github.com/midimahdi/audioguard/actions)
-[![License](https://img.shields.io/badge/License-Proprietary-gray)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 <br/>
 
@@ -149,7 +149,6 @@ Options:
 
 ---
 
-## 📜 License & Copyright
+## 📜 License
 
-Copyright (c) 2026 **MAHDI DIGITAL LLC**. All rights reserved.  
-See [LICENSE](LICENSE) and [SECURITY.md](SECURITY.md) for licensing details and vulnerability reporting.
+Distributed under the **MIT License**. Copyright (c) 2026 **Mahdi (MAHDI DIGITAL LLC)**. See [LICENSE](LICENSE) and [SECURITY.md](SECURITY.md) for licensing details and vulnerability reporting.
