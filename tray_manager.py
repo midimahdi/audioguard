@@ -35,6 +35,7 @@ class TrayManager:
         
         self.icon: Optional[pystray.Icon] = None
         self.is_recording = False
+        self.is_tray_available = False
         self._tray_thread: Optional[threading.Thread] = None
         
         self._icon_standby = self._create_shield_icon()
@@ -86,7 +87,7 @@ class TrayManager:
 
     def start(self):
         """Initializes and runs the system tray icon in a dedicated daemon thread."""
-        if sys.platform != "win32" or not HAS_PYSTRAY:
+        if sys.platform == "darwin" or not HAS_PYSTRAY:
             logger.info("System Tray skipped on %s (Dock / foreground mode active)", sys.platform)
             return
 
@@ -104,9 +105,11 @@ class TrayManager:
                     title=f"{self.app_title} (Standby)",
                     menu=menu
                 )
+                self.is_tray_available = True
                 self.icon.run()
             except Exception as e:
-                logger.error("Failed to run system tray icon: %s", e)
+                self.is_tray_available = False
+                logger.warning("System tray not available on this environment (%s): %s", sys.platform, e)
 
         self._tray_thread = threading.Thread(target=run, daemon=True)
         self._tray_thread.start()

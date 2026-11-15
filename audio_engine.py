@@ -446,6 +446,7 @@ class AudioEngine:
     # Cross-Platform Sleep Prevention (Windows SetThreadExecutionState & macOS caffeinate)
     # -------------------------------------------------------------
     _caffeinate_proc: Optional[subprocess.Popen] = None
+    _linux_inhibit_proc: Optional[subprocess.Popen] = None
 
     @classmethod
     def _set_sleep_prevention(cls, enable: bool):
@@ -453,6 +454,7 @@ class AudioEngine:
         Prevents OS from entering sleep or idle suspend while recording.
         - Windows: Uses SetThreadExecutionState with ES_SYSTEM_REQUIRED and ES_AWAYMODE_REQUIRED.
         - macOS: Uses /usr/bin/caffeinate -dimu.
+        - Linux: Uses /usr/bin/systemd-inhibit.
         """
         if sys.platform == "win32":
             try:
@@ -493,6 +495,28 @@ class AudioEngine:
                         logger.info("macOS Sleep Prevention: RELEASED")
                 except Exception as e:
                     logger.warning("Failed to terminate macOS caffeinate: %s", e)
+        elif sys.platform.startswith("linux"):
+            if enable:
+                try:
+                    if cls._linux_inhibit_proc is None or cls._linux_inhibit_proc.poll() is not None:
+                        cls._linux_inhibit_proc = subprocess.Popen(
+                            ["systemd-inhibit", "--what=idle:sleep:handle-lid-switch",
+                             "--who=AudioGuard", "--why=Recording Lossless Audio Backup",
+                             "sleep", "infinity"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
+                        logger.info("Linux Sleep Prevention: ACTIVE (systemd-inhibit PID %s)", cls._linux_inhibit_proc.pid)
+                except Exception as e:
+                    logger.debug("Linux systemd-inhibit not available: %s", e)
+            else:
+                try:
+                    if cls._linux_inhibit_proc is not None:
+                        cls._linux_inhibit_proc.terminate()
+                        cls._linux_inhibit_proc = None
+                        logger.info("Linux Sleep Prevention: RELEASED")
+                except Exception as e:
+                    logger.debug("Failed to release Linux sleep prevention: %s", e)
 
     # -------------------------------------------------------------
     # Recording Session Control (Single-File Crash-Proof FLAC)

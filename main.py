@@ -842,7 +842,7 @@ class AudioGuardApp:
         self.lang_menu.pack(side="left")
 
         self.startup_var = ctk.BooleanVar(value=is_autostart_enabled(profile=self.profile))
-        os_label = "Windows" if sys.platform == "win32" else "macOS" if sys.platform == "darwin" else "System"
+        os_label = "Windows" if sys.platform == "win32" else "macOS" if sys.platform == "darwin" else "Linux" if sys.platform.startswith("linux") else "System"
         self.startup_chk = ctk.CTkCheckBox(
             opts_frame,
             text=f"{t('opt_autostart')} ({os_label})",
@@ -1996,7 +1996,7 @@ class AudioGuardApp:
         if hasattr(self, "lang_lbl"):
             self.lang_lbl.configure(text=t("opt_language"))
         if hasattr(self, "startup_chk"):
-            os_label = "Windows" if sys.platform == "win32" else "macOS" if sys.platform == "darwin" else "System"
+            os_label = "Windows" if sys.platform == "win32" else "macOS" if sys.platform == "darwin" else "Linux" if sys.platform.startswith("linux") else "System"
             self.startup_chk.configure(text=f"{t('opt_autostart')} ({os_label})")
         if hasattr(self, "mono_switch"):
             self.mono_switch.configure(text=t("opt_mono_sum"))
@@ -2059,12 +2059,15 @@ class AudioGuardApp:
     # Volunteer-Proof Window Interception & System Tray
     # -------------------------------------------------------------
     def on_close_button_clicked(self):
-        """Hides the window to tray instead of quitting."""
-        self.root.withdraw()
-        self.tray.notify(
-            title="AudioGuard",
-            message="AudioGuard is running in the background and protecting audio backups."
-        )
+        """Hides the window to tray on Windows/supported Linux, or minimizes cleanly."""
+        if sys.platform == "win32" or (sys.platform.startswith("linux") and getattr(self.tray, "is_tray_available", False)):
+            self.root.withdraw()
+            self.tray.notify(
+                title="AudioGuard",
+                message="AudioGuard is running in the background and protecting audio backups."
+            )
+        else:
+            self.root.iconify()
 
     def show_window_from_tray(self):
         """Restores window from system tray and brings to foreground (Thread-Safe)."""

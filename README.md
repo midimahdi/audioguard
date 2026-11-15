@@ -63,7 +63,13 @@
 | **Intel (Core i5/i7/i9 / Xeon)** | Drag-and-Drop DMG | `AudioGuard-macOS-Intel.dmg` | Native x86_64 disk image for older Intel Macs. |
 | **Intel (Core i5/i7/i9 / Xeon)** | App Bundle ZIP | `AudioGuard-macOS-Intel.zip` | Standalone `.app` bundle (x86_64). |
 
-### First-Launch Notes (Windows & macOS)
+### Linux (x86_64 — Ubuntu, Debian, Fedora, Arch, Mint)
+
+| Package | File | Description |
+| :--- | :--- | :--- |
+| **Standalone Tarball** | `AudioGuard-Linux-x86_64.tar.gz` | Complete unpacked binary bundle. Extract and run `./AudioGuard` directly. |
+
+### First-Launch Notes (Windows, macOS & Linux)
 
 - **Windows SmartScreen:** On first run of unsigned binaries, Windows Defender SmartScreen may display an unrecognized app alert. Click **"More info"** $\rightarrow$ **"Run anyway"**.
 - **macOS Gatekeeper:** If macOS blocks opening the app due to Apple quarantine attributes, run this command in Terminal once:
@@ -71,6 +77,10 @@
   xattr -cr /Applications/AudioGuard.app
   ```
   *(Or right-click `AudioGuard.app` in Finder and select **Open**).*
+- **Linux Audio Libraries:** If using minimal distributions, install standard audio runtimes:
+  ```bash
+  sudo apt-get install -y libportaudio2 libsndfile1
+  ```
 
 ---
 

@@ -386,12 +386,64 @@ def is_windows_startup_enabled(profile: str = "default") -> bool:
         logger.error("Error reading Windows Run registry key for [%s]: %s", profile, e)
         return False
 
+def _get_linux_autostart_path(profile: str = "default") -> Path:
+    autostart_dir = Path.home() / ".config" / "autostart"
+    autostart_dir.mkdir(parents=True, exist_ok=True)
+    slug = "audioguard" if profile == "default" else f"audioguard_{profile}"
+    return autostart_dir / f"{slug}.desktop"
+
+def set_linux_startup(enabled: bool, profile: str = "default") -> bool:
+    """Configures XDG autostart on Linux desktop (~/.config/autostart)."""
+    if not sys.platform.startswith("linux"):
+        return False
+    desktop_file = _get_linux_autostart_path(profile=profile)
+    try:
+        if enabled:
+            if getattr(sys, "frozen", False):
+                exec_cmd = f'"{sys.executable}"'
+            else:
+                main_py = os.path.abspath(sys.argv[0])
+                exec_cmd = f'"{sys.executable}" "{main_py}"'
+            if profile != "default":
+                exec_cmd += f' --profile {profile}'
+            exec_cmd += ' --minimized'
+
+            name_suffix = "" if profile == "default" else f" [{profile}]"
+            content = f"""[Desktop Entry]
+Type=Application
+Version=1.0
+Name=AudioGuard{name_suffix}
+Comment=AudioGuard Bulletproof Audio Backup Monitor
+Exec={exec_cmd}
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
+"""
+            desktop_file.write_text(content, encoding="utf-8")
+            desktop_file.chmod(0o755)
+            logger.info("Linux XDG Autostart enabled for [%s]: %s", profile, desktop_file)
+            return True
+        else:
+            if desktop_file.exists():
+                desktop_file.unlink()
+                logger.info("Linux XDG Autostart disabled for [%s]: %s", profile, desktop_file)
+            return True
+    except Exception as e:
+        logger.error("Failed to update Linux autostart for [%s]: %s", profile, e)
+        return False
+
+def is_linux_startup_enabled(profile: str = "default") -> bool:
+    return _get_linux_autostart_path(profile=profile).exists()
+
 def set_autostart(enabled: bool, profile: str = "default") -> bool:
-    """Cross-platform startup registration (Windows Registry or macOS LaunchAgent)."""
+    """Cross-platform startup registration (Windows Registry, macOS LaunchAgent, or Linux XDG)."""
     if sys.platform == "win32":
         return set_windows_startup(enabled, profile=profile)
     elif sys.platform == "darwin":
         return set_macos_startup(enabled, profile=profile)
+    elif sys.platform.startswith("linux"):
+        return set_linux_startup(enabled, profile=profile)
     return False
 
 def is_autostart_enabled(profile: str = "default") -> bool:
@@ -400,6 +452,8 @@ def is_autostart_enabled(profile: str = "default") -> bool:
         return is_windows_startup_enabled(profile=profile)
     elif sys.platform == "darwin":
         return is_macos_startup_enabled(profile=profile)
+    elif sys.platform.startswith("linux"):
+        return is_linux_startup_enabled(profile=profile)
     return False
 
 def create_desktop_shortcut(profile: str = "default", display_name: str = "") -> bool:
@@ -454,6 +508,46 @@ def create_desktop_shortcut(profile: str = "default", display_name: str = "") ->
             return True
         except Exception as e:
             logger.error("Failed to create desktop shortcut on macOS: %s", e)
+            return False
+
+    elif sys.platform.startswith("linux"):
+        try:
+            if getattr(sys, "frozen", False):
+                exec_cmd = f'"{sys.executable}"'
+            else:
+                main_py = os.path.abspath(sys.argv[0])
+                exec_cmd = f'"{sys.executable}" "{main_py}"'
+            if profile != "default":
+                exec_cmd += f' --profile {profile}'
+
+            content = f"""[Desktop Entry]
+Type=Application
+Version=1.0
+Name={label}
+Comment=AudioGuard Bulletproof Audio Backup
+Exec={exec_cmd}
+Terminal=false
+Categories=AudioVideo;Audio;
+StartupNotify=false
+"""
+            # 1. Desktop
+            desktop = Path.home() / "Desktop"
+            if desktop.exists():
+                shortcut_file = desktop / f"{label}.desktop"
+                shortcut_file.write_text(content, encoding="utf-8")
+                shortcut_file.chmod(0o755)
+
+            # 2. XDG Applications Menu
+            app_dir = Path.home() / ".local" / "share" / "applications"
+            app_dir.mkdir(parents=True, exist_ok=True)
+            menu_file = app_dir / f"audioguard_{profile}.desktop"
+            menu_file.write_text(content, encoding="utf-8")
+            menu_file.chmod(0o755)
+
+            logger.info("Created desktop shortcut on Linux: %s", label)
+            return True
+        except Exception as e:
+            logger.error("Failed to create desktop shortcut on Linux: %s", e)
             return False
             
     return False
