@@ -25,7 +25,9 @@ test_output/
 *.log
 
 # AudioGuard runtime data
-config.json
+config*.json
+retention_ledger*.json
+*.log
 app.log
 
 # Operating System files

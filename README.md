@@ -63,6 +63,15 @@
 | **Intel (Core i5/i7/i9 / Xeon)** | Drag-and-Drop DMG | `AudioGuard-macOS-Intel.dmg` | Native x86_64 disk image for older Intel Macs. |
 | **Intel (Core i5/i7/i9 / Xeon)** | App Bundle ZIP | `AudioGuard-macOS-Intel.zip` | Standalone `.app` bundle (x86_64). |
 
+### First-Launch Notes (Windows & macOS)
+
+- **Windows SmartScreen:** On first run of unsigned binaries, Windows Defender SmartScreen may display an unrecognized app alert. Click **"More info"** $\rightarrow$ **"Run anyway"**.
+- **macOS Gatekeeper:** If macOS blocks opening the app due to Apple quarantine attributes, run this command in Terminal once:
+  ```bash
+  xattr -cr /Applications/AudioGuard.app
+  ```
+  *(Or right-click `AudioGuard.app` in Finder and select **Open**).*
+
 ---
 
 ## Local Development & Building
