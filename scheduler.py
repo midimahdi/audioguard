@@ -56,7 +56,7 @@ class SchedulerEngine:
     def _load_slots_from_config(self) -> List[Dict[str, Any]]:
         """Loads schedule slots from config with fallback to legacy single-schedule fields."""
         raw_slots = self.config.get("schedule_slots")
-        if isinstance(raw_slots, list) and len(raw_slots) > 0:
+        if raw_slots is not None and isinstance(raw_slots, list):
             cleaned = []
             for s in raw_slots:
                 if isinstance(s, dict) and "start" in s and "end" in s:
@@ -69,10 +69,9 @@ class SchedulerEngine:
                         "days": raw_days,
                         "label": str(s.get("label", "")).strip()
                     })
-            if cleaned:
-                return cleaned
+            return cleaned
 
-        # Fallback to legacy single schedule
+        # Fallback to legacy single schedule only if schedule_slots key is completely missing
         s_start = self.config.get("schedule_start", "18:00")
         s_end = self.config.get("schedule_end", "21:00")
         return [{"start": s_start, "end": s_end, "days": ["All"], "label": ""}]

@@ -187,6 +187,7 @@ class AudioGuardApp:
         self._schedule_watchdog_tick()
         self._meter_ui_tick()
         self._timer_ui_tick()
+        self.root.after(300, self._check_first_run_onboarding)
 
         # Intercept window close button (volunteer-proof hide to tray / Dock)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close_button_clicked)
@@ -463,7 +464,7 @@ class AudioGuardApp:
                     bullets = "\n".join([f"    • {p}" for p in parts])
                     self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')}\n{bullets}", justify="left")
             else:
-                self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {t('sum_no_upcoming')}", justify="left")
+                self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {t('sum_manual_no_slots')}", justify="left")
 
         # Disk
         folder = self.config.get("backup_folder", "")
@@ -1271,6 +1272,268 @@ class AudioGuardApp:
             command=dlg.destroy
         ).pack(side="right", padx=(0, 8))
 
+    # -------------------------------------------------------------
+    # First-Run Onboarding Modal (Clean UX for Fresh Installs)
+    # -------------------------------------------------------------
+    def _check_first_run_onboarding(self):
+        """Displays initial setup modal if this is the first launch on a clean machine."""
+        if self.config.get("first_run_completed", False):
+            return
+        if self.is_minimized_to_tray:
+            self.show_window_from_tray()
+        self._show_onboarding_modal()
+
+    def _show_onboarding_modal(self):
+        """1-screen onboarding setup dialog with live VU meter and schedule configuration."""
+        dlg = ctk.CTkToplevel(self.root)
+        dlg.title(t("onboard_title"))
+        dlg.geometry("520x600")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        try:
+            x = self.root.winfo_x() + (self.root.winfo_width() - 520) // 2
+            y = self.root.winfo_y() + (self.root.winfo_height() - 600) // 2
+            dlg.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+
+        content = ctk.CTkFrame(dlg, fg_color="transparent")
+        content.pack(fill="both", expand=True, padx=22, pady=18)
+
+        # Header
+        head_frame = ctk.CTkFrame(content, fg_color="transparent")
+        head_frame.pack(fill="x", pady=(0, 12))
+
+        ctk.CTkLabel(
+            head_frame,
+            text=f"🛡️  {t('onboard_title')}",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLOR_TEXT_WHITE,
+            anchor="w"
+        ).pack(fill="x")
+
+        ctk.CTkLabel(
+            head_frame,
+            text=t("onboard_subtitle"),
+            font=ctk.CTkFont(size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w"
+        ).pack(fill="x", pady=(2, 0))
+
+        # 1. Audio Input Device + Live Test Meter
+        sec1 = ctk.CTkFrame(content, fg_color="#18181B", corner_radius=8, border_width=1, border_color=COLOR_PANEL_BORDER)
+        sec1.pack(fill="x", pady=(0, 10), padx=2)
+        sec1_pad = ctk.CTkFrame(sec1, fg_color="transparent")
+        sec1_pad.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(
+            sec1_pad,
+            text=t("onboard_device"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLOR_TEXT_WHITE,
+            anchor="w"
+        ).pack(fill="x", pady=(0, 4))
+
+        input_names = [d["display_name"] for d in self.input_devices_cache] if self.input_devices_cache else ["Default Audio Device"]
+        cur_dev = self.input_device_combo.get() if hasattr(self, "input_device_combo") else input_names[0]
+        if cur_dev not in input_names and input_names:
+            cur_dev = input_names[0]
+
+        dev_menu = ctk.CTkOptionMenu(
+            sec1_pad,
+            values=input_names,
+            height=28,
+            font=ctk.CTkFont(size=11)
+        )
+        dev_menu.set(cur_dev)
+        dev_menu.pack(fill="x", pady=(0, 8))
+
+        def _on_dev_picked(choice):
+            self.on_input_device_changed(choice)
+
+        dev_menu.configure(command=_on_dev_picked)
+
+        # Live Signal Test Canvas
+        meter_head = ctk.CTkFrame(sec1_pad, fg_color="transparent")
+        meter_head.pack(fill="x", pady=(0, 2))
+        ctk.CTkLabel(meter_head, text=t("onboard_meter"), font=ctk.CTkFont(size=10, weight="bold"), text_color=COLOR_TEXT_MUTED).pack(side="left")
+        test_db_lbl = ctk.CTkLabel(meter_head, text="-∞ dBFS", font=ctk.CTkFont(size=10), text_color="#10B981")
+        test_db_lbl.pack(side="right")
+
+        test_canvas = tk.Canvas(sec1_pad, height=12, bg="#141417", highlightthickness=1, highlightbackground=COLOR_PANEL_BORDER)
+        test_canvas.pack(fill="x")
+
+        # 2. Recording Mode Preference
+        sec2 = ctk.CTkFrame(content, fg_color="#18181B", corner_radius=8, border_width=1, border_color=COLOR_PANEL_BORDER)
+        sec2.pack(fill="x", pady=(0, 10), padx=2)
+        sec2_pad = ctk.CTkFrame(sec2, fg_color="transparent")
+        sec2_pad.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(
+            sec2_pad,
+            text=t("onboard_mode"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLOR_TEXT_WHITE,
+            anchor="w"
+        ).pack(fill="x", pady=(0, 6))
+
+        mode_var = ctk.StringVar(value="manual")
+
+        # Auto schedule subframe
+        sch_subframe = ctk.CTkFrame(sec2_pad, fg_color="#141417", corner_radius=6, border_width=1, border_color=COLOR_PANEL_BORDER)
+
+        row_time = ctk.CTkFrame(sch_subframe, fg_color="transparent")
+        row_time.pack(fill="x", padx=10, pady=8)
+        ctk.CTkLabel(row_time, text="Daily Time Slot:", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 6))
+        st_in = ctk.CTkEntry(row_time, width=54, height=24, font=ctk.CTkFont(size=11))
+        st_in.insert(0, "18:00")
+        st_in.pack(side="left", padx=(0, 4))
+        ctk.CTkLabel(row_time, text="to", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 4))
+        et_in = ctk.CTkEntry(row_time, width=54, height=24, font=ctk.CTkFont(size=11))
+        et_in.insert(0, "21:00")
+        et_in.pack(side="left", padx=(0, 8))
+        lbl_in = ctk.CTkEntry(row_time, placeholder_text=t("slot_label_placeholder"), width=120, height=24, font=ctk.CTkFont(size=11))
+        lbl_in.pack(side="left")
+
+        def _on_mode_toggled():
+            if mode_var.get() == "auto":
+                sch_subframe.pack(fill="x", pady=(6, 0))
+            else:
+                sch_subframe.pack_forget()
+
+        r_manual = ctk.CTkRadioButton(
+            sec2_pad,
+            text=t("onboard_mode_manual"),
+            variable=mode_var,
+            value="manual",
+            font=ctk.CTkFont(size=11),
+            command=_on_mode_toggled
+        )
+        r_manual.pack(anchor="w", pady=(0, 4))
+
+        r_auto = ctk.CTkRadioButton(
+            sec2_pad,
+            text=t("onboard_mode_auto"),
+            variable=mode_var,
+            value="auto",
+            font=ctk.CTkFont(size=11),
+            command=_on_mode_toggled
+        )
+        r_auto.pack(anchor="w")
+
+        # 3. Storage Directory
+        sec3 = ctk.CTkFrame(content, fg_color="#18181B", corner_radius=8, border_width=1, border_color=COLOR_PANEL_BORDER)
+        sec3.pack(fill="x", pady=(0, 14), padx=2)
+        sec3_pad = ctk.CTkFrame(sec3, fg_color="transparent")
+        sec3_pad.pack(fill="x", padx=12, pady=10)
+
+        ctk.CTkLabel(
+            sec3_pad,
+            text=t("onboard_storage"),
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLOR_TEXT_WHITE,
+            anchor="w"
+        ).pack(fill="x", pady=(0, 4))
+
+        f_row = ctk.CTkFrame(sec3_pad, fg_color="transparent")
+        f_row.pack(fill="x")
+        def_folder = self.config.get("backup_folder", "") or get_default_backup_folder()
+        f_entry = ctk.CTkEntry(f_row, font=ctk.CTkFont(size=11), height=26)
+        f_entry.insert(0, def_folder)
+        f_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        def _on_browse_store():
+            chosen = filedialog.askdirectory(initialdir=def_folder, title="Select Storage Directory")
+            if chosen:
+                f_entry.delete(0, "end")
+                f_entry.insert(0, chosen)
+
+        ctk.CTkButton(f_row, text=t("btn_browse"), width=70, height=26, font=ctk.CTkFont(size=11), command=_on_browse_store).pack(side="left")
+
+        # Live Level Meter Animation in Onboarding
+        active_flag = [True]
+
+        def _modal_meter_loop():
+            if not active_flag[0]:
+                return
+            try:
+                if not dlg.winfo_exists():
+                    active_flag[0] = False
+                    return
+                peak, rms = self.audio.get_levels()
+                w = test_canvas.winfo_width()
+                if w > 10:
+                    test_canvas.delete("all")
+                    def _db_to_px(db_val):
+                        if db_val <= -60: return 0
+                        if db_val >= 0: return w
+                        return int(((db_val + 60.0) / 60.0) * w)
+
+                    rms_px = _db_to_px(rms)
+                    peak_px = _db_to_px(peak)
+
+                    test_canvas.create_rectangle(0, 0, rms_px, 12, fill="#10B981", outline="")
+                    if peak_px > rms_px:
+                        test_canvas.create_line(peak_px, 0, peak_px, 12, fill="#F59E0B", width=2)
+
+                    if peak <= -59.0:
+                        test_db_lbl.configure(text="-∞ dBFS", text_color=COLOR_TEXT_MUTED)
+                    else:
+                        test_db_lbl.configure(text=f"{peak:.1f} dBFS", text_color="#10B981" if peak < -6 else "#EF4444")
+
+                dlg.after(50, _modal_meter_loop)
+            except Exception:
+                active_flag[0] = False
+
+        dlg.after(100, _modal_meter_loop)
+
+        # Action: Finish Setup
+        def _on_finish():
+            active_flag[0] = False
+            chosen_dev = dev_menu.get()
+            self.on_input_device_changed(chosen_dev)
+
+            chosen_path = f_entry.get().strip() or def_folder
+            self.config.set("backup_folder", chosen_path)
+            if hasattr(self, "folder_entry"):
+                self.folder_entry.configure(state="normal")
+                self.folder_entry.delete(0, "end")
+                self.folder_entry.insert(0, chosen_path)
+                self.folder_entry.configure(state="readonly")
+
+            if mode_var.get() == "auto":
+                st = st_in.get().strip()
+                et = et_in.get().strip()
+                lbl = lbl_in.get().strip()
+                self.scheduler.update_schedules(enabled=True, slots=[{"start": st, "end": et, "days": ["All"], "label": lbl}])
+                self.sched_enabled_var.set(True)
+            else:
+                self.scheduler.update_schedules(enabled=False, slots=[])
+                self.sched_enabled_var.set(False)
+
+            self.config.set("first_run_completed", True)
+            self._populate_slot_rows()
+            self._update_status_banner()
+            self._update_dashboard_summary()
+            try:
+                dlg.destroy()
+            except Exception:
+                pass
+
+        dlg.protocol("WM_DELETE_WINDOW", _on_finish)
+
+        ctk.CTkButton(
+            content,
+            text=f"✓  {t('onboard_btn_finish')}",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            height=36,
+            fg_color=COLOR_GREEN,
+            hover_color=COLOR_GREEN_HOVER,
+            command=_on_finish
+        ).pack(fill="x", pady=(2, 0))
+
     def _bind_touchpad_scroll(self):
         """
         Binds modern Tk 9 <TouchpadScroll> events (TIP 684) so macOS and Windows
@@ -1336,9 +1599,25 @@ class AudioGuardApp:
             item["frame"].destroy()
         self.slot_rows.clear()
 
+        if hasattr(self, "_empty_slots_lbl") and self._empty_slots_lbl:
+            try:
+                self._empty_slots_lbl.destroy()
+            except Exception:
+                pass
+            self._empty_slots_lbl = None
+
         slots = self.scheduler.slots
         if not slots:
-            slots = [{"start": "18:00", "end": "21:00", "days": ["All"], "label": ""}]
+            self._empty_slots_lbl = ctk.CTkLabel(
+                self.slots_frame,
+                text=t("slots_empty_hint"),
+                font=ctk.CTkFont(size=11, slant="italic"),
+                text_color=COLOR_TEXT_MUTED,
+                justify="center"
+            )
+            self._empty_slots_lbl.pack(fill="x", padx=16, pady=12)
+            self._mark_schedules_clean()
+            return
 
         for s in slots:
             self._create_slot_row(
@@ -1350,6 +1629,13 @@ class AudioGuardApp:
         self._mark_schedules_clean()
 
     def _create_slot_row(self, start_val: str, end_val: str, days_val: Optional[List[str]] = None, label_val: str = ""):
+        if hasattr(self, "_empty_slots_lbl") and self._empty_slots_lbl:
+            try:
+                self._empty_slots_lbl.destroy()
+            except Exception:
+                pass
+            self._empty_slots_lbl = None
+
         row = ctk.CTkFrame(self.slots_frame, fg_color="transparent")
         row.pack(fill="x", pady=3, padx=4)
 
@@ -1485,16 +1771,35 @@ class AudioGuardApp:
         self.slot_rows.append(entry_data)
 
     def on_add_slot_clicked(self):
-        self._create_slot_row("12:00", "14:00", ["All"], label_val="")
+        if hasattr(self, "_empty_slots_lbl") and self._empty_slots_lbl:
+            try:
+                self._empty_slots_lbl.destroy()
+            except Exception:
+                pass
+            self._empty_slots_lbl = None
+        self._create_slot_row("18:00", "21:00", ["All"], label_val="")
         self._mark_schedules_dirty()
 
     def _delete_slot_row(self, row_dict):
-        if len(self.slot_rows) <= 1:
-            messagebox.showwarning("Notice", "You must keep at least one time slot. (You can uncheck 'Enable Auto-Recording' above instead).")
-            return
         row_dict["frame"].destroy()
-        self.slot_rows.remove(row_dict)
+        if row_dict in self.slot_rows:
+            self.slot_rows.remove(row_dict)
         self._mark_schedules_dirty()
+
+        if len(self.slot_rows) == 0:
+            if hasattr(self, "_empty_slots_lbl") and self._empty_slots_lbl:
+                try:
+                    self._empty_slots_lbl.destroy()
+                except Exception:
+                    pass
+            self._empty_slots_lbl = ctk.CTkLabel(
+                self.slots_frame,
+                text=t("slots_empty_hint"),
+                font=ctk.CTkFont(size=11, slant="italic"),
+                text_color=COLOR_TEXT_MUTED,
+                justify="center"
+            )
+            self._empty_slots_lbl.pack(fill="x", padx=16, pady=12)
 
     def on_toggle_schedule_enabled(self):
         new_state = self.sched_enabled_var.get()
@@ -1546,7 +1851,9 @@ class AudioGuardApp:
             self._update_status_banner()
             self._update_dashboard_summary()
             self._mark_schedules_clean()
-            if merged_count < len(slots):
+            if len(slots) == 0:
+                messagebox.showinfo(t("dlg_save_title"), t("sum_manual_no_slots"))
+            elif merged_count < len(slots):
                 messagebox.showinfo(t("dlg_save_title"), t("dlg_merged_slots"))
             else:
                 messagebox.showinfo(t("dlg_save_title"), t("dlg_saved_count", count=merged_count))

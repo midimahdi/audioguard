@@ -73,14 +73,15 @@ def get_default_backup_folder() -> str:
     return str(folder)
 
 DEFAULT_CONFIG = {
+    "first_run_completed": False,
     "input_device_name": "",
     "input_host_api": "",
     "monitor_device_name": "",
     "mono_sum": True,
     "schedule_start": "18:00",
     "schedule_end": "21:00",
-    "schedule_slots": [{"start": "18:00", "end": "21:00", "days": ["All"], "label": ""}],
-    "schedule_enabled": True,
+    "schedule_slots": [],
+    "schedule_enabled": False,
     "backup_folder": "",
     "folder_grouping": "monthly",    # "none", "monthly", "weekly", "daily"
     "filename_pattern": "Audio_Backup_{date}_{time}",

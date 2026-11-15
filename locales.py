@@ -140,7 +140,18 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "dlg_quit_title": "Quit AudioGuard",
         "dlg_quit_msg": "Are you sure you want to exit AudioGuard?\n\nIf a scheduled time slot arrives while AudioGuard is closed, audio will NOT be recorded.",
         "dlg_merged_slots": "Overlapping schedule slots were automatically merged into unified windows.",
-        "dlg_invalid_time": "Invalid time format (HH:MM) in schedule row: '{time}'"
+        "dlg_invalid_time": "Invalid time format (HH:MM) in schedule row: '{time}'",
+        "slots_empty_hint": "No scheduled time frames configured. Click '+ Add Time Slot' to add one, or use manual recording.",
+        "sum_manual_no_slots": "Manual Mode (No scheduled time frames)",
+        "onboard_title": "Welcome to AudioGuard",
+        "onboard_subtitle": "Let's configure your audio input and backup preferences.",
+        "onboard_device": "1. Audio Input Device (Mixer / Microphone):",
+        "onboard_meter": "Live Signal Test:",
+        "onboard_mode": "2. Recording Mode:",
+        "onboard_mode_manual": "Manual Only (Record on-demand with Start/Stop button)",
+        "onboard_mode_auto": "Automated Daily Schedule (Record automatically at specific times)",
+        "onboard_storage": "3. Backup Storage Directory:",
+        "onboard_btn_finish": "Save & Launch AudioGuard"
     },
 
     "ar": {
@@ -270,7 +281,18 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "dlg_quit_title": "إغلاق AudioGuard",
         "dlg_quit_msg": "هل أنت متأكد من رغبتك في إغلاق التطبيق؟\n\nإذا حل موعد مجدول أثناء إغلاق البرنامج، فلن يتم تسجيل الصوت.",
         "dlg_merged_slots": "تم دمج الفترات الزمنية المتداخلة تلقائياً في نافذة موحدة.",
-        "dlg_invalid_time": "صيغة الوقت غير صالحة (ساعة:دقيقة) في السطر: '{time}'"
+        "dlg_invalid_time": "صيغة الوقت غير صالحة (ساعة:دقيقة) في السطر: '{time}'",
+        "slots_empty_hint": "لا توجد فترات مجدولة. انقر على '+ إضافة فترة زمنية' أو استخدم التسجيل اليدوي.",
+        "sum_manual_no_slots": "الوضع اليدوي (لا توجد فترات مجدولة)",
+        "onboard_title": "مرحباً بك في AudioGuard",
+        "onboard_subtitle": "لنقم بضبط مدخل الصوت وإعدادات التسجيل في ثوانٍ.",
+        "onboard_device": "1. مدخل الصوت (الميكسر أو الميكروفون):",
+        "onboard_meter": "اختبار الإشارة المباشرة:",
+        "onboard_mode": "2. وضع التسجيل:",
+        "onboard_mode_manual": "يدوي فقط (تسجيل عند الطلب بزر البدء/الإيقاف)",
+        "onboard_mode_auto": "جدولة يومية آلية (تسجيل تلقائي في أوقات محددة)",
+        "onboard_storage": "3. مجلد حفظ النسخ الاحتياطية:",
+        "onboard_btn_finish": "حفظ وتشغيل AudioGuard"
     },
 
     "fr": {
@@ -400,7 +422,18 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "dlg_quit_title": "Quitter AudioGuard",
         "dlg_quit_msg": "Êtes-vous sûr de vouloir quitter AudioGuard ?\n\nSi un créneau planifié arrive pendant que l'application est fermée, l'audio ne sera PAS enregistré.",
         "dlg_merged_slots": "Les créneaux horaires qui se chevauchent ont été automatiquement fusionnés.",
-        "dlg_invalid_time": "Format d'heure invalide (HH:MM) dans la ligne : '{time}'"
+        "dlg_invalid_time": "Format d'heure invalide (HH:MM) dans la ligne : '{time}'",
+        "slots_empty_hint": "Aucun créneau programmé. Cliquez sur '+ Ajouter un créneau' ou utilisez l'enregistrement manuel.",
+        "sum_manual_no_slots": "Mode Manuel (Aucun créneau programmé)",
+        "onboard_title": "Bienvenue dans AudioGuard",
+        "onboard_subtitle": "Configurons votre entrée audio et vos préférences de sauvegarde.",
+        "onboard_device": "1. Périphérique d'entrée audio (Mixeur / Micro) :",
+        "onboard_meter": "Test du signal en direct :",
+        "onboard_mode": "2. Mode d'enregistrement :",
+        "onboard_mode_manual": "Manuel uniquement (Enregistrement avec bouton Marche/Arrêt)",
+        "onboard_mode_auto": "Planification quotidienne automatique (Enregistrement à heures fixes)",
+        "onboard_storage": "3. Répertoire de sauvegarde :",
+        "onboard_btn_finish": "Enregistrer et lancer AudioGuard"
     }
 }
 
