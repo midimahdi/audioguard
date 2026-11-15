@@ -10,7 +10,7 @@
 - **Power-Loss Safety:** 1.0-second continuous `sf_file.flush()` + `os.fsync(raw_file.fileno())` guaranteeing zero data loss on hard power shutoff
 - **Memory/CPU Footprint:** < 30 MB RAM, < 0.5% CPU when active; 0.0% CPU when minimized to system tray
 - **Network Requirement:** 100% Offline-First (zero telemetry, local atomic JSON state)
-- **Latest Stable Version:** v1.5.3 (Released 2026-11-15)
+- **Latest Stable Version:** v1.5.4 (Released 2026-11-15)
 
 ## Exact Problems Solved (Query-Intent Mapping)
 - Prevents audio file corruption and 0-byte header loss when mosque PCs or venue systems abruptly lose power mid-lecture or mid-khutbah.
