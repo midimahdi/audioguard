@@ -66,7 +66,8 @@ class SchedulerEngine:
                     cleaned.append({
                         "start": str(s["start"]).strip(),
                         "end": str(s["end"]).strip(),
-                        "days": raw_days
+                        "days": raw_days,
+                        "label": str(s.get("label", "")).strip()
                     })
             if cleaned:
                 return cleaned
@@ -74,7 +75,7 @@ class SchedulerEngine:
         # Fallback to legacy single schedule
         s_start = self.config.get("schedule_start", "18:00")
         s_end = self.config.get("schedule_end", "21:00")
-        return [{"start": s_start, "end": s_end, "days": ["All"]}]
+        return [{"start": s_start, "end": s_end, "days": ["All"], "label": ""}]
 
     @staticmethod
     def _parse_time(time_str: str) -> dtime:
@@ -126,7 +127,7 @@ class SchedulerEngine:
                 et = time_to_min(s["end"])
                 if et <= st:
                     et += 1440
-                intervals.append([st, et])
+                intervals.append([st, et, str(s.get("label", "")).strip()])
 
             intervals.sort(key=lambda x: x[0])
             merged_intervals = []
@@ -137,15 +138,19 @@ class SchedulerEngine:
                     prev = merged_intervals[-1]
                     if cur[0] <= prev[1]:  # overlapping or contiguous
                         prev[1] = max(prev[1], cur[1])
+                        # Inherit starting slot label, or fallback to merged slot label if starting was blank
+                        if not prev[2] and cur[2]:
+                            prev[2] = cur[2]
                     else:
                         merged_intervals.append(cur)
 
             days_list = list(day_tuple)
-            for st, et in merged_intervals:
+            for st, et, lbl in merged_intervals:
                 merged_result.append({
                     "start": min_to_time(st),
                     "end": min_to_time(et),
-                    "days": days_list
+                    "days": days_list,
+                    "label": lbl
                 })
 
         merged_result.sort(key=lambda x: time_to_min(x["start"]))
@@ -161,12 +166,13 @@ class SchedulerEngine:
                 st_str = s.get("start", "").strip()
                 et_str = s.get("end", "").strip()
                 days = s.get("days", ["All"])
+                label = str(s.get("label", "")).strip()
                 if not isinstance(days, list) or not days:
                     days = ["All"]
                 # Validate format
                 self._parse_time(st_str)
                 self._parse_time(et_str)
-                valid_slots.append({"start": st_str, "end": et_str, "days": days})
+                valid_slots.append({"start": st_str, "end": et_str, "days": days, "label": label})
 
             # Auto-merge any overlapping or contiguous slots sharing active days
             valid_slots = self.merge_overlapping_slots(valid_slots)
@@ -347,7 +353,8 @@ class SchedulerEngine:
                     self.active_slot = matching_slot
                     self.is_in_overtime = False
                     self.overtime_start_time = None
-                    self.on_start_recording(False)
+                    slot_lbl = matching_slot.get("label", "")
+                    self.on_start_recording(False, slot_lbl)
 
         self.last_evaluated_window_state = inside_window
 

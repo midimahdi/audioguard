@@ -453,7 +453,9 @@ class AudioGuardApp:
                         d_str = "Sat–Sun"
                     else:
                         d_str = ",".join(days)
-                    parts.append(f"{s['start']}–{s['end']} ({d_str})")
+                    lbl = s.get("label", "").strip()
+                    prefix = f"{lbl}: " if lbl else ""
+                    parts.append(f"{prefix}{s['start']}–{s['end']} ({d_str})")
                 if len(parts) == 1:
                     self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {parts[0]}", justify="left")
                 else:
@@ -701,16 +703,41 @@ class AudioGuardApp:
         )
         self.naming_preview_lbl.pack(fill="x", padx=16, pady=(0, 6))
 
-        # Auto-Export MP3 Checkbox
-        self.auto_export_mp3_var = ctk.BooleanVar(value=self.config.get("auto_export_mp3", True))
-        self.auto_export_mp3_chk = ctk.CTkCheckBox(
-            self.settings_scroll,
-            text=t("opt_export_mp3"),
-            variable=self.auto_export_mp3_var,
+        # Companion Audio Export Format
+        comp_frame = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
+        comp_frame.pack(fill="x", padx=16, pady=(0, 8))
+
+        self.sec_comp_lbl = ctk.CTkLabel(
+            comp_frame,
+            text=t("opt_companion_format"),
             font=ctk.CTkFont(size=11),
-            command=self.on_auto_export_mp3_toggled
+            text_color=COLOR_TEXT_MUTED
         )
-        self.auto_export_mp3_chk.pack(anchor="w", padx=16, pady=(0, 8))
+        self.sec_comp_lbl.pack(side="left", padx=(0, 8))
+
+        self.companion_format_map = {
+            t("fmt_mp3"): "mp3",
+            t("fmt_wav"): "wav",
+            t("fmt_ogg"): "ogg",
+            t("fmt_none"): "none"
+        }
+        self.companion_format_reverse_map = {v: k for k, v in self.companion_format_map.items()}
+
+        cur_comp = self.config.get("companion_format")
+        if not cur_comp:
+            cur_comp = "mp3" if self.config.get("auto_export_mp3", True) else "none"
+
+        comp_display = self.companion_format_reverse_map.get(cur_comp, t("fmt_mp3"))
+
+        self.companion_combo = ctk.CTkComboBox(
+            comp_frame,
+            values=list(self.companion_format_map.keys()),
+            width=210,
+            height=26,
+            command=self.on_companion_format_changed
+        )
+        self.companion_combo.set(comp_display)
+        self.companion_combo.pack(side="left")
 
         # Folder Grouping Options
         group_frame = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
@@ -1190,17 +1217,18 @@ class AudioGuardApp:
 
         slots = self.scheduler.slots
         if not slots:
-            slots = [{"start": "18:00", "end": "21:00", "days": ["All"]}]
+            slots = [{"start": "18:00", "end": "21:00", "days": ["All"], "label": ""}]
 
         for s in slots:
             self._create_slot_row(
                 s.get("start", "18:00"),
                 s.get("end", "21:00"),
-                s.get("days", ["All"])
+                s.get("days", ["All"]),
+                s.get("label", "")
             )
         self._mark_schedules_clean()
 
-    def _create_slot_row(self, start_val: str, end_val: str, days_val: Optional[List[str]] = None):
+    def _create_slot_row(self, start_val: str, end_val: str, days_val: Optional[List[str]] = None, label_val: str = ""):
         row = ctk.CTkFrame(self.slots_frame, fg_color="transparent")
         row.pack(fill="x", pady=3, padx=4)
 
@@ -1213,12 +1241,12 @@ class AudioGuardApp:
         ctk.CTkLabel(row, text="to", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 3))
         et_entry = ctk.CTkEntry(row, width=54, height=24, font=ctk.CTkFont(size=11))
         et_entry.insert(0, end_val)
-        et_entry.pack(side="left", padx=(0, 8))
+        et_entry.pack(side="left", padx=(0, 6))
         et_entry.bind("<KeyRelease>", lambda e: self._mark_schedules_dirty())
 
         # Days of Week container
         days_box = ctk.CTkFrame(row, fg_color="transparent")
-        days_box.pack(side="left", padx=(0, 8))
+        days_box.pack(side="left", padx=(0, 6))
 
         day_vars = {}
         day_buttons = {}
@@ -1296,10 +1324,24 @@ class AudioGuardApp:
             btn.pack(side="left", padx=1)
             day_buttons[k] = btn
 
+        # Slot Label Entry (e.g. Friday Prayer)
+        lbl_entry = ctk.CTkEntry(
+            row,
+            placeholder_text=t("slot_label_placeholder"),
+            width=120,
+            height=24,
+            font=ctk.CTkFont(size=11)
+        )
+        if label_val:
+            lbl_entry.insert(0, label_val)
+        lbl_entry.pack(side="left", padx=(0, 6))
+        lbl_entry.bind("<KeyRelease>", lambda e: self._mark_schedules_dirty())
+
         entry_data = {
             "frame": row,
             "start_entry": st_entry,
             "end_entry": et_entry,
+            "label_entry": lbl_entry,
             "day_vars": day_vars,
             "day_buttons": day_buttons
         }
@@ -1319,7 +1361,7 @@ class AudioGuardApp:
         self.slot_rows.append(entry_data)
 
     def on_add_slot_clicked(self):
-        self._create_slot_row("12:00", "14:00", ["All"])
+        self._create_slot_row("12:00", "14:00", ["All"], label_val="")
         self._mark_schedules_dirty()
 
     def _delete_slot_row(self, row_dict):
@@ -1365,12 +1407,13 @@ class AudioGuardApp:
         for r in self.slot_rows:
             st = r["start_entry"].get().strip()
             et = r["end_entry"].get().strip()
+            lbl = r["label_entry"].get().strip() if "label_entry" in r else ""
             sel_days = [d for d, var in r["day_vars"].items() if var.get()]
             if not sel_days or len(sel_days) == 7:
                 days_payload = ["All"]
             else:
                 days_payload = sel_days
-            slots.append({"start": st, "end": et, "days": days_payload})
+            slots.append({"start": st, "end": et, "days": days_payload, "label": lbl})
 
         success = self.scheduler.update_schedules(enabled=enabled, slots=slots)
         if success:
@@ -1496,11 +1539,11 @@ class AudioGuardApp:
                 self.scheduler.trigger_manual_start()
         self.root.after(0, _do_toggle)
 
-    def on_scheduler_start_recording(self, is_manual: bool):
+    def on_scheduler_start_recording(self, is_manual: bool, slot_label: str = ""):
         mode = "MANUAL" if is_manual else "SCHEDULED"
-        res = self.audio.start_recording(manual=is_manual)
+        res = self.audio.start_recording(manual=is_manual, slot_label=slot_label)
         if res:
-            logger.info("Recording started successfully (%s): %s", mode, res)
+            logger.info("Recording started successfully (%s, slot: '%s'): %s", mode, slot_label, res)
             self._update_status_banner()
             self.tray.update_recording_state(True)
         else:
@@ -1719,18 +1762,20 @@ class AudioGuardApp:
         self.naming_preview_lbl.configure(text=f"Preview: {preview} (Saved)", text_color=COLOR_GREEN)
         messagebox.showinfo("Naming Format Saved", f"File naming pattern saved successfully!\n\nPreview: {preview}")
 
-    def on_auto_export_mp3_toggled(self):
-        enabled = self.auto_export_mp3_var.get()
-        self.config.set("auto_export_mp3", enabled)
-        logger.info("Auto-export MP3 copy toggled: %s", enabled)
-        if enabled:
+    def on_companion_format_changed(self, choice: str):
+        val = self.companion_format_map.get(choice, "mp3")
+        self.config.set("companion_format", val)
+        self.config.set("auto_export_mp3", (val != "none"))
+        logger.info("Selected companion export format: %s", val.upper())
+        if val != "none":
+            from config_manager import recover_missing_companion_exports
             folder = self.config.get("backup_folder", "")
-            from config_manager import recover_missing_mp3_exports
-            threading.Thread(
-                target=recover_missing_mp3_exports,
-                args=(folder, self.audio.recording_file_path),
-                daemon=True
-            ).start()
+            if folder:
+                threading.Thread(
+                    target=recover_missing_companion_exports,
+                    args=(folder, self.audio.recording_file_path, val),
+                    daemon=True
+                ).start()
 
     def on_folder_grouping_changed(self, choice: str):
         mapped = self.grouping_options.get(choice, "monthly")
@@ -1799,8 +1844,21 @@ class AudioGuardApp:
             self.sec_naming_lbl.configure(text=t("sec_naming"))
         if hasattr(self, "naming_tokens_lbl"):
             self.naming_tokens_lbl.configure(text=t("naming_tokens"))
-        if hasattr(self, "auto_export_mp3_chk"):
-            self.auto_export_mp3_chk.configure(text=t("opt_export_mp3"))
+        if hasattr(self, "sec_comp_lbl"):
+            self.sec_comp_lbl.configure(text=t("opt_companion_format"))
+        if hasattr(self, "companion_combo"):
+            self.companion_format_map = {
+                t("fmt_mp3"): "mp3",
+                t("fmt_wav"): "wav",
+                t("fmt_ogg"): "ogg",
+                t("fmt_none"): "none"
+            }
+            self.companion_format_reverse_map = {v: k for k, v in self.companion_format_map.items()}
+            self.companion_combo.configure(values=list(self.companion_format_map.keys()))
+            cur_comp = self.config.get("companion_format")
+            if not cur_comp:
+                cur_comp = "mp3" if self.config.get("auto_export_mp3", True) else "none"
+            self.companion_combo.set(self.companion_format_reverse_map.get(cur_comp, t("fmt_mp3")))
         if hasattr(self, "sec_group_lbl"):
             self.sec_group_lbl.configure(text=t("sec_folder_grouping"))
 
@@ -1840,14 +1898,22 @@ class AudioGuardApp:
             pattern = self.config.get("filename_pattern", "")
             cleanup_old_backups(folder, retention_days, pattern=pattern)
 
-            # Power-Cut Recovery & Missing MP3 Generator
-            if self.config.get("auto_export_mp3", True):
-                from config_manager import recover_missing_mp3_exports
+            # Power-Cut Recovery & Missing Companion Generator
+            companion_fmt = self.config.get("companion_format")
+            if not companion_fmt:
+                companion_fmt = "mp3" if self.config.get("auto_export_mp3", True) else "none"
+
+            if companion_fmt != "none":
+                from config_manager import recover_missing_companion_exports
                 def _async_recovery():
-                    logger.info("Scanning for missing MP3 files (power-cut recovery)...")
-                    recovered = recover_missing_mp3_exports(folder, active_recording_file=self.audio.recording_file_path)
+                    logger.info("Scanning for missing %s files (power-cut recovery)...", companion_fmt.upper())
+                    recovered = recover_missing_companion_exports(
+                        folder,
+                        active_recording_file=self.audio.recording_file_path,
+                        target_format=companion_fmt
+                    )
                     if recovered > 0:
-                        logger.info("Power-cut recovery: Successfully generated %d missing MP3 copies.", recovered)
+                        logger.info("Power-cut recovery: Successfully generated %d missing %s copies.", recovered, companion_fmt.upper())
 
                 t = threading.Thread(target=_async_recovery, daemon=True)
                 t.start()

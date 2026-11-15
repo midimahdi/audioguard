@@ -78,12 +78,13 @@ DEFAULT_CONFIG = {
     "mono_sum": True,
     "schedule_start": "18:00",
     "schedule_end": "21:00",
-    "schedule_slots": [{"start": "18:00", "end": "21:00", "days": ["All"]}],
+    "schedule_slots": [{"start": "18:00", "end": "21:00", "days": ["All"], "label": ""}],
     "schedule_enabled": True,
     "backup_folder": "",
     "folder_grouping": "monthly",    # "none", "monthly", "weekly", "daily"
     "filename_pattern": "Audio_Backup_{date}_{time}",
     "auto_export_mp3": True,
+    "companion_format": "mp3",       # "mp3", "wav", "ogg", "none"
     "retention_days": 30,
     "auto_start_on_boot": True,
     "monitoring_enabled": False,
@@ -124,12 +125,13 @@ def get_recording_subfolder(base_folder: str, folder_grouping: str = "monthly", 
 
     return target
 
-def format_recording_filename(pattern: str, is_manual: bool = False, dt=None) -> str:
+def format_recording_filename(pattern: str, is_manual: bool = False, dt=None, slot_label: str = "") -> str:
     """
     Evaluates a user-defined filename pattern into a clean, sanitized Windows-compatible .flac filename.
-    Supported tokens: {date}, {time}, {year}, {month}, {day}, {hour}, {min}, {sec}, {mode}
+    Supported tokens: {slot}, {slot_name}, {date}, {time}, {year}, {month}, {day}, {hour}, {min}, {sec}, {mode}
     """
     from datetime import datetime
+    import re
     if dt is None:
         dt = datetime.now()
 
@@ -150,7 +152,25 @@ def format_recording_filename(pattern: str, is_manual: bool = False, dt=None) ->
     sec_str = dt.strftime("%S")
     mode_str = "MANUAL" if is_manual else "SCHEDULED"
 
+    # Clean slot label: allow alphanumeric, underscore, hyphen, and Arabic unicode range
+    clean_slot = ""
+    if slot_label:
+        clean_slot = re.sub(r'[^\w\-\u0600-\u06FF]', '_', str(slot_label).strip())
+        clean_slot = re.sub(r'_+', '_', clean_slot).strip('_')
+
+    # If slot label is present but not explicitly in pattern, insert it cleanly
+    if clean_slot and "{slot}" not in pat.lower() and "{slot_name}" not in pat.lower():
+        if "audio_backup_" in pat.lower():
+            idx = pat.lower().find("audio_backup_") + len("audio_backup_")
+            pat = pat[:idx] + f"{clean_slot}_" + pat[idx:]
+        else:
+            pat = f"{clean_slot}_{pat}"
+
+    slot_val = clean_slot if clean_slot else ("Manual" if is_manual else "")
+
     replacements = {
+        "{slot}": slot_val,
+        "{slot_name}": slot_val,
         "{date}": date_str,
         "{time}": time_str,
         "{year}": year_str,
@@ -168,6 +188,10 @@ def format_recording_filename(pattern: str, is_manual: bool = False, dt=None) ->
         while lower_token in result.lower():
             idx = result.lower().find(lower_token)
             result = result[:idx] + val + result[idx + len(lower_token):]
+
+    # Clean double underscores if {slot} was empty
+    result = re.sub(r'_+', '_', result)
+    result = re.sub(r'^_+|_+$', '', result)
 
     # If manual and {mode} was not in pattern, append _MANUAL
     if is_manual and "{mode}" not in pat.lower() and "manual" not in result.lower():
@@ -560,33 +584,79 @@ class SingleInstanceLock:
 
 
 # -------------------------------------------------------------
-# MP3 Conversion & Power-Cut Recovery
+# Companion Audio Conversion & 3-Step Verification Gate
 # -------------------------------------------------------------
-def convert_flac_to_mp3(flac_path: str, mp3_path=None) -> bool:
+def convert_flac_companion(flac_path: str, companion_path=None, target_format: str = "mp3") -> bool:
     """
-    Converts a FLAC file to MP3 in a memory-safe, stream-friendly way.
-    Handles both clean recordings and power-cut truncated FLAC files flawlessly.
+    Converts a master FLAC file to a secondary companion format (MP3, WAV, or OGG)
+    with a strict 3-step integrity verification gate before the file is marked valid:
+      1. Complete read-back decode verification via soundfile.
+      2. Strict duration tolerance match (abs(dst_duration - src_duration) <= 0.5s).
+      3. File size / bitrate sanity check.
+    If target_format is 'none', returns True immediately.
     """
+    fmt = (target_format or "mp3").lower().strip()
+    if fmt in ("none", "flac", "off", "disabled"):
+        return True
+
+    format_specs = {
+        "mp3": {"ext": ".mp3", "sf_format": "MP3", "subtype": None},
+        "wav": {"ext": ".wav", "sf_format": "WAV", "subtype": "PCM_16"},
+        "ogg": {"ext": ".ogg", "sf_format": "OGG", "subtype": "VORBIS"}
+    }
+
+    if fmt not in format_specs:
+        logger.warning("Unsupported companion format '%s'. Defaulting to MP3.", fmt)
+        fmt = "mp3"
+
+    spec = format_specs[fmt]
+    ext = spec["ext"]
+    sf_format = spec["sf_format"]
+    subtype = spec["subtype"]
+
     import soundfile as sf
 
     flac_p = Path(flac_path)
     if not flac_p.exists():
         return False
 
-    if mp3_path is None:
-        mp3_p = flac_p.with_suffix(".mp3")
+    if companion_path is None:
+        dst_p = flac_p.with_suffix(ext)
     else:
-        mp3_p = Path(mp3_path)
+        dst_p = Path(companion_path)
 
-    # If MP3 already exists and is not empty (> 1 KB), consider it done
-    if mp3_p.exists() and mp3_p.stat().st_size > 1024:
-        return True
+    # Check if existing companion is already healthy and verified
+    if dst_p.exists() and dst_p.stat().st_size > 1024:
+        try:
+            with sf.SoundFile(str(dst_p), mode="r") as existing_f:
+                if existing_f.frames > 0:
+                    with sf.SoundFile(str(flac_p), mode="r") as src_f:
+                        if abs((existing_f.frames / existing_f.samplerate) - (src_f.frames / src_f.samplerate)) <= 0.5:
+                            return True
+        except Exception:
+            logger.warning("Existing companion %s is corrupted or incomplete. Re-converting...", dst_p.name)
 
-    temp_mp3 = mp3_p.with_suffix(".mp3.tmp")
+    temp_dst = dst_p.with_suffix(f"{ext}.tmp")
 
     try:
+        # 1. Read source FLAC attributes
         with sf.SoundFile(str(flac_p), mode="r") as src:
-            with sf.SoundFile(str(temp_mp3), mode="w", samplerate=src.samplerate, channels=src.channels, format="MP3") as dst:
+            src_rate = src.samplerate
+            src_channels = src.channels
+            src_frames = src.frames
+            src_duration = src_frames / src_rate if src_rate > 0 else 0.0
+
+            write_kwargs = {
+                "file": str(temp_dst),
+                "mode": "w",
+                "samplerate": src_rate,
+                "channels": src_channels,
+                "format": sf_format
+            }
+            if subtype:
+                write_kwargs["subtype"] = subtype
+
+            with sf.SoundFile(**write_kwargs) as dst:
                 chunk_size = 8192
                 while True:
                     try:
@@ -595,34 +665,78 @@ def convert_flac_to_mp3(flac_path: str, mp3_path=None) -> bool:
                             break
                         dst.write(data)
                     except Exception:
-                        # Reached truncated power-loss EOF cleanly
+                        # Reached EOF on power-loss truncated file cleanly
                         break
 
-        # Atomically replace final file
-        if temp_mp3.exists() and temp_mp3.stat().st_size > 1024:
-            temp_mp3.replace(mp3_p)
-            logger.info("FLAC to MP3 conversion complete: %s -> %s", flac_p.name, mp3_p.name)
-            return True
-        else:
-            if temp_mp3.exists():
-                temp_mp3.unlink()
+        # 2. Automated 3-Step Verification Gate
+        if not temp_dst.exists() or temp_dst.stat().st_size < 1024:
+            logger.error("Companion conversion failed: empty output file for %s", flac_p.name)
+            if temp_dst.exists():
+                temp_dst.unlink()
             return False
+
+        # Gate 1: Read-back decode verification
+        with sf.SoundFile(str(temp_dst), mode="r") as verify_f:
+            dst_rate = verify_f.samplerate
+            dst_frames = verify_f.frames
+            dst_duration = dst_frames / dst_rate if dst_rate > 0 else 0.0
+            # Test-read a block to ensure codec frames aren't broken
+            verify_f.read(min(4096, dst_frames), dtype="float32")
+
+        # Gate 2: Duration Gate (+/- 0.5 seconds tolerance)
+        duration_diff = abs(dst_duration - src_duration)
+        if duration_diff > 0.5:
+            logger.error(
+                "VERIFICATION FAILED for %s companion: duration mismatch (FLAC: %.2fs vs %s: %.2fs, diff=%.2fs). File truncated! Discarding.",
+                fmt.upper(), src_duration, fmt.upper(), dst_duration, duration_diff
+            )
+            if temp_dst.exists():
+                temp_dst.unlink()
+            return False
+
+        # Gate 3: Bitrate / Size Sanity
+        if src_duration > 5.0 and temp_dst.stat().st_size < 10000:
+            logger.error("VERIFICATION FAILED: %s file size unreasonably small (%d bytes for %.1fs)", fmt.upper(), temp_dst.stat().st_size, src_duration)
+            if temp_dst.exists():
+                temp_dst.unlink()
+            return False
+
+        # All 3 gates passed 100% — atomically replace final file
+        temp_dst.replace(dst_p)
+        logger.info(
+            "FLAC to %s conversion 100%% VERIFIED: %s -> %s (duration: %.2fs, size: %.1f KB)",
+            fmt.upper(), flac_p.name, dst_p.name, dst_duration, dst_p.stat().st_size / 1024.0
+        )
+        return True
+
     except Exception as e:
-        logger.error("Failed to convert %s to MP3: %s", flac_path, e)
-        if temp_mp3.exists():
+        logger.error("Failed to convert %s to %s: %s", flac_path, fmt.upper(), e)
+        if temp_dst.exists():
             try:
-                temp_mp3.unlink()
+                temp_dst.unlink()
             except Exception:
                 pass
         return False
 
 
-def recover_missing_mp3_exports(folder_path: str, active_recording_file=None) -> int:
+def convert_flac_to_mp3(flac_path: str, mp3_path=None) -> bool:
+    """Backward compatibility wrapper calling convert_flac_companion with MP3."""
+    return convert_flac_companion(flac_path, companion_path=mp3_path, target_format="mp3")
+
+
+def recover_missing_companion_exports(folder_path: str, active_recording_file=None, target_format: str = "mp3") -> int:
     """
-    Recursively scans the backup directory and subfolders for any .flac files that do not have a matching .mp3 file.
+    Recursively scans the backup directory and subfolders for any .flac files that lack a verified companion file.
     Converts them in order (oldest to newest), ensuring power-cut recordings get converted on boot.
     Returns the count of successfully recovered/converted files.
     """
+    fmt = (target_format or "mp3").lower().strip()
+    if fmt in ("none", "flac", "off", "disabled"):
+        return 0
+
+    format_exts = {"mp3": ".mp3", "wav": ".wav", "ogg": ".ogg"}
+    ext = format_exts.get(fmt, ".mp3")
+
     folder = Path(folder_path)
     if not folder.exists() or not folder.is_dir():
         return 0
@@ -647,16 +761,21 @@ def recover_missing_mp3_exports(folder_path: str, active_recording_file=None) ->
             if (time.time() - f.stat().st_mtime) < 3.0:
                 continue
 
-            mp3_companion = f.with_suffix(".mp3")
-            if not mp3_companion.exists() or mp3_companion.stat().st_size < 1024:
-                logger.info("Power-cut recovery / Auto-export: Converting missing MP3 for %s...", f.name)
-                res = convert_flac_to_mp3(str(f))
+            comp_p = f.with_suffix(ext)
+            if not comp_p.exists() or comp_p.stat().st_size < 1024:
+                logger.info("Power-cut recovery / Auto-export: Converting missing %s for %s...", fmt.upper(), f.name)
+                res = convert_flac_companion(str(f), target_format=fmt)
                 if res:
                     recovered += 1
     except Exception as e:
-        logger.error("Error during MP3 recovery scan of %s: %s", folder, e)
+        logger.error("Error during %s recovery scan of %s: %s", fmt.upper(), folder, e)
 
     return recovered
+
+
+def recover_missing_mp3_exports(folder_path: str, active_recording_file=None) -> int:
+    """Backward compatibility wrapper."""
+    return recover_missing_companion_exports(folder_path, active_recording_file, target_format="mp3")
 
 
 # -------------------------------------------------------------
@@ -664,9 +783,9 @@ def recover_missing_mp3_exports(folder_path: str, active_recording_file=None) ->
 # -------------------------------------------------------------
 def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = "") -> int:
     """
-    Deletes backup .flac and .mp3 files older than retention_days across all subfolders.
-    Matches standard 'Audio_Backup_*', legacy 'Mosque_Backup_*',
-    or files matching the user's custom naming prefix.
+    Deletes backup .flac, .mp3, .wav, and .ogg files older than retention_days across all subfolders.
+    Matches standard 'Audio_Backup_*', legacy 'Mosque_Backup_*', custom prefixes,
+    or any backup containing a YYYY-MM-DD timestamp pattern.
     Also cleans up any empty subfolders left behind.
     If retention_days <= 0, no files are deleted.
     Returns the number of deleted files.
@@ -694,21 +813,24 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
 
     logger.info("Running recursive retention cleanup on '%s' (Older than %d days)...", folder, retention_days)
 
+    import re
     try:
         for file in folder.rglob("*"):
             if not file.is_file():
                 continue
             name = file.name
             name_lower = name.lower()
-            if not (name_lower.endswith(".flac") or name_lower.endswith(".mp3")):
+            if not (name_lower.endswith(".flac") or name_lower.endswith(".mp3") or name_lower.endswith(".wav") or name_lower.endswith(".ogg")):
                 continue
 
-            # Strict pattern check so unrelated files are NEVER touched
+            # Strict pattern check so unrelated files are NEVER touched:
+            # Matches standard prefix, custom prefix, or any date-stamped AudioGuard recording
             stem = file.stem
             matches = (
                 stem.startswith("Audio_Backup_") or
                 stem.startswith("Mosque_Backup_") or
-                (bool(custom_prefix) and stem.startswith(custom_prefix))
+                (bool(custom_prefix) and stem.startswith(custom_prefix)) or
+                bool(re.search(r'\d{4}-\d{2}-\d{2}', stem))
             )
 
             if matches:

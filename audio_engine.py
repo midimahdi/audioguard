@@ -497,7 +497,7 @@ class AudioEngine:
     # -------------------------------------------------------------
     # Recording Session Control (Single-File Crash-Proof FLAC)
     # -------------------------------------------------------------
-    def start_recording(self, manual: bool = False, is_manual: Optional[bool] = None) -> Optional[str]:
+    def start_recording(self, manual: bool = False, is_manual: Optional[bool] = None, slot_label: str = "") -> Optional[str]:
         """
         Starts a continuous recording session to FLAC.
         Returns the created file path on success, or None on failure.
@@ -556,7 +556,7 @@ class AudioEngine:
         # Resolve target directory based on grouping (e.g. C:\AudioBackups\2026-11\)
         target_dir = get_recording_subfolder(str(backup_folder), folder_grouping=folder_grouping, dt=now)
 
-        candidate_name = format_recording_filename(pattern, is_manual=manual, dt=now)
+        candidate_name = format_recording_filename(pattern, is_manual=manual, dt=now, slot_label=slot_label)
         target_path = target_dir / candidate_name
 
         # Collision avoidance: append _1, _2 if file with exact name already exists
@@ -615,14 +615,18 @@ class AudioEngine:
 
         logger.info("RECORDING FINISHED -> Duration: %.1fs, File: %s", elapsed, finished_path)
         
-        # Trigger background MP3 conversion if enabled
-        if finished_path and self.config.get("auto_export_mp3", True):
-            from config_manager import convert_flac_to_mp3
-            def _async_convert(src):
-                logger.info("Auto-exporting MP3 copy for %s...", Path(src).name)
-                convert_flac_to_mp3(src)
+        # Trigger background companion format conversion if enabled
+        companion_fmt = self.config.get("companion_format")
+        if not companion_fmt:
+            companion_fmt = "mp3" if self.config.get("auto_export_mp3", True) else "none"
 
-            t = threading.Thread(target=_async_convert, args=(finished_path,), daemon=True)
+        if finished_path and companion_fmt != "none":
+            from config_manager import convert_flac_companion
+            def _async_convert(src, fmt):
+                logger.info("Auto-exporting %s copy for %s...", fmt.upper(), Path(src).name)
+                convert_flac_companion(src, target_format=fmt)
+
+            t = threading.Thread(target=_async_convert, args=(finished_path, companion_fmt), daemon=True)
             t.start()
 
         # Trigger automatic retention cleanup post-recording
