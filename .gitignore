@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# PyInstaller builds
+build/
+dist/
+dist-installer/
+*.manifest
+*.spec
+
+# Local audio and test files
+*.flac
+*.mp3
+*.wav
+*.tmp
+test_output/
+*.log
+
+# AudioGuard runtime data
+config.json
+app.log
+
+# Operating System files
+.DS_Store
+Thumbs.db
+Desktop.ini
