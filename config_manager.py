@@ -7,6 +7,7 @@ import sys
 import json
 import shutil
 import logging
+from logging.handlers import RotatingFileHandler
 import time
 from pathlib import Path
 
@@ -30,15 +31,15 @@ def get_app_dir() -> Path:
     return app_dir
 
 def setup_logging():
-    """Initializes logging to both app.log and stdout."""
+    """Initializes rotating logging to app.log (capped at 2 MB with 2 backups) and stdout."""
     app_dir = get_app_dir()
     log_file = app_dir / "app.log"
     
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     
-    # File handler
-    fh = logging.FileHandler(log_file, encoding="utf-8")
+    # Rotating file handler: 2 MB per file, max 2 backups (capped at ~6 MB total forever)
+    fh = RotatingFileHandler(log_file, maxBytes=2 * 1024 * 1024, backupCount=2, encoding="utf-8")
     fh.setLevel(logging.INFO)
     file_fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
     fh.setFormatter(file_fmt)
@@ -74,15 +75,50 @@ DEFAULT_CONFIG = {
     "mono_sum": True,
     "schedule_start": "18:00",
     "schedule_end": "21:00",
-    "schedule_slots": [{"start": "18:00", "end": "21:00"}],
+    "schedule_slots": [{"start": "18:00", "end": "21:00", "days": ["All"]}],
     "schedule_enabled": True,
     "backup_folder": "",
+    "folder_grouping": "monthly",    # "none", "monthly", "weekly", "daily"
     "filename_pattern": "Audio_Backup_{date}_{time}",
     "auto_export_mp3": True,
     "retention_days": 30,
     "auto_start_on_boot": True,
     "monitoring_enabled": False
 }
+
+def get_recording_subfolder(base_folder: str, folder_grouping: str = "monthly", dt=None) -> Path:
+    """
+    Returns destination Path according to the configured folder grouping strategy:
+    - 'monthly': base_folder / 'YYYY-MM'
+    - 'weekly': base_folder / 'YYYY-Www' (ISO week)
+    - 'daily': base_folder / 'YYYY-MM-DD'
+    - 'none': base_folder (flat)
+    Ensures directory exists.
+    """
+    from datetime import datetime
+    if dt is None:
+        dt = datetime.now()
+
+    base = Path(base_folder) if base_folder else Path(get_default_backup_folder())
+    group = (folder_grouping or "monthly").lower().strip()
+
+    if group == "monthly":
+        target = base / dt.strftime("%Y-%m")
+    elif group == "weekly":
+        target = base / f"{dt.year}-W{dt.strftime('%V')}"
+    elif group == "daily":
+        target = base / dt.strftime("%Y-%m-%d")
+    else:
+        target = base
+
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.warning("Could not create target folder %s (%s). Falling back to base %s", target, e, base)
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+
+    return target
 
 def format_recording_filename(pattern: str, is_manual: bool = False, dt=None) -> str:
     """
@@ -443,7 +479,7 @@ def convert_flac_to_mp3(flac_path: str, mp3_path=None) -> bool:
 
 def recover_missing_mp3_exports(folder_path: str, active_recording_file=None) -> int:
     """
-    Scans the backup directory for any .flac files that do not have a matching .mp3 file.
+    Recursively scans the backup directory and subfolders for any .flac files that do not have a matching .mp3 file.
     Converts them in order (oldest to newest), ensuring power-cut recordings get converted on boot.
     Returns the count of successfully recovered/converted files.
     """
@@ -455,7 +491,7 @@ def recover_missing_mp3_exports(folder_path: str, active_recording_file=None) ->
     recovered = 0
 
     try:
-        flac_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".flac"]
+        flac_files = [f for f in folder.rglob("*.flac") if f.is_file()]
         flac_files.sort(key=lambda x: x.stat().st_mtime)
 
         for f in flac_files:
@@ -488,9 +524,10 @@ def recover_missing_mp3_exports(folder_path: str, active_recording_file=None) ->
 # -------------------------------------------------------------
 def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = "") -> int:
     """
-    Deletes backup .flac and .mp3 files older than retention_days.
+    Deletes backup .flac and .mp3 files older than retention_days across all subfolders.
     Matches standard 'Audio_Backup_*', legacy 'Mosque_Backup_*',
     or files matching the user's custom naming prefix.
+    Also cleans up any empty subfolders left behind.
     If retention_days <= 0, no files are deleted.
     Returns the number of deleted files.
     """
@@ -515,10 +552,10 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
         elif idx == -1:
             custom_prefix = pattern.strip()
 
-    logger.info("Running retention cleanup on '%s' (Older than %d days)...", folder, retention_days)
+    logger.info("Running recursive retention cleanup on '%s' (Older than %d days)...", folder, retention_days)
 
     try:
-        for file in folder.iterdir():
+        for file in folder.rglob("*"):
             if not file.is_file():
                 continue
             name = file.name
@@ -540,9 +577,19 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
                     if mtime < cutoff_time:
                         file.unlink()
                         deleted_count += 1
-                        logger.info("Retention: Deleted old backup file: %s (age: %.1f days)", name, (time.time() - mtime) / 86400)
+                        logger.info("Retention: Deleted old backup file: %s (age: %.1f days)", file.relative_to(folder), (time.time() - mtime) / 86400)
                 except Exception as ex:
                     logger.error("Failed to delete expired backup %s: %s", name, ex)
+
+        # Prune empty subfolders bottom-up
+        for dirpath in sorted(folder.glob("**/*"), key=lambda p: len(p.parts), reverse=True):
+            if dirpath.is_dir() and dirpath != folder:
+                try:
+                    if not any(dirpath.iterdir()):
+                        dirpath.rmdir()
+                        logger.info("Retention: Removed empty subfolder %s", dirpath.name)
+                except Exception:
+                    pass
     except Exception as e:
         logger.error("Error during retention scan of %s: %s", folder, e)
 

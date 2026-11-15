@@ -398,13 +398,28 @@ class AudioGuardApp:
         else:
             slots = self.scheduler.slots
             if slots:
-                slots_str = ", ".join(f"{s['start']}–{s['end']}" for s in slots)
+                parts = []
+                for s in slots:
+                    days = s.get("days", ["All"])
+                    if "All" in days or len(days) == 7:
+                        d_str = "Daily"
+                    elif len(days) == 1:
+                        d_str = days[0]
+                    elif set(days) == {"Mon", "Tue", "Wed", "Thu", "Fri"}:
+                        d_str = "Mon–Fri"
+                    elif set(days) == {"Sat", "Sun"}:
+                        d_str = "Sat–Sun"
+                    else:
+                        d_str = ",".join(days)
+                    parts.append(f"{s['start']}–{s['end']} ({d_str})")
+                slots_str = ", ".join(parts)
                 self.sum_sch_lbl.configure(text=f"⏰  Schedules: {slots_str} (Auto-records on boot)")
             else:
                 self.sum_sch_lbl.configure(text="⏰  Schedule: No time slots set")
 
         # Disk
         folder = self.config.get("backup_folder", "")
+        grouping = self.config.get("folder_grouping", "monthly").capitalize()
         free_gb = get_free_disk_space_gb(folder)
         if free_gb < 1.0:
             color = COLOR_RED
@@ -412,7 +427,7 @@ class AudioGuardApp:
             color = COLOR_AMBER
         else:
             color = COLOR_GREEN
-        self.sum_disk_lbl.configure(text=f"📁  Storage: {free_gb:.1f} GB free  ({folder})", text_color=color)
+        self.sum_disk_lbl.configure(text=f"📁  Storage: {free_gb:.1f} GB free  ({folder} • {grouping})", text_color=color)
 
     # -------------------------------------------------------------
     # 2. Settings View (Dedicated Configuration Panel)
@@ -645,7 +660,40 @@ class AudioGuardApp:
             font=ctk.CTkFont(size=11),
             command=self.on_auto_export_mp3_toggled
         )
-        self.auto_export_mp3_chk.pack(anchor="w", padx=16, pady=(0, 12))
+        self.auto_export_mp3_chk.pack(anchor="w", padx=16, pady=(0, 8))
+
+        # Folder Grouping Options
+        group_frame = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
+        group_frame.pack(fill="x", padx=16, pady=(0, 12))
+
+        ctk.CTkLabel(
+            group_frame,
+            text="Organize Files Into Subfolders:",
+            font=ctk.CTkFont(size=11),
+            text_color=COLOR_TEXT_MUTED
+        ).pack(side="left", padx=(0, 8))
+
+        self.grouping_options = {
+            "Monthly (YYYY-MM)": "monthly",
+            "Daily (YYYY-MM-DD)": "daily",
+            "Weekly (YYYY-Www)": "weekly",
+            "None (Flat)": "none"
+        }
+        self.rev_grouping_options = {v: k for k, v in self.grouping_options.items()}
+
+        current_grp = self.config.get("folder_grouping", "monthly")
+        current_display = self.rev_grouping_options.get(current_grp, "Monthly (YYYY-MM)")
+
+        self.folder_grouping_menu = ctk.CTkOptionMenu(
+            group_frame,
+            values=list(self.grouping_options.keys()),
+            width=180,
+            height=26,
+            font=ctk.CTkFont(size=11),
+            command=self.on_folder_grouping_changed
+        )
+        self.folder_grouping_menu.set(current_display)
+        self.folder_grouping_menu.pack(side="left")
 
         # Section 4: System Options
         ctk.CTkLabel(
@@ -707,7 +755,7 @@ class AudioGuardApp:
         self.open_log_btn.pack(side="left")
 
     # -------------------------------------------------------------
-    # Multi-Slot Schedule Rows UI Helpers
+    # Multi-Slot Schedule Rows UI Helpers (with Day-of-Week Toggles)
     # -------------------------------------------------------------
     def _populate_slot_rows(self):
         """Populates the frame with slot rows from scheduler.slots."""
@@ -717,26 +765,106 @@ class AudioGuardApp:
 
         slots = self.scheduler.slots
         if not slots:
-            slots = [{"start": "18:00", "end": "21:00"}]
+            slots = [{"start": "18:00", "end": "21:00", "days": ["All"]}]
 
         for s in slots:
-            self._create_slot_row(s.get("start", "18:00"), s.get("end", "21:00"))
+            self._create_slot_row(
+                s.get("start", "18:00"),
+                s.get("end", "21:00"),
+                s.get("days", ["All"])
+            )
 
-    def _create_slot_row(self, start_val: str, end_val: str):
+    def _create_slot_row(self, start_val: str, end_val: str, days_val: Optional[List[str]] = None):
         row = ctk.CTkFrame(self.slots_frame, fg_color="transparent")
-        row.pack(fill="x", pady=2, padx=8)
+        row.pack(fill="x", pady=3, padx=4)
 
-        ctk.CTkLabel(row, text="From", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 4))
-        st_entry = ctk.CTkEntry(row, width=56, height=24, font=ctk.CTkFont(size=11))
+        ctk.CTkLabel(row, text="From", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 3))
+        st_entry = ctk.CTkEntry(row, width=54, height=24, font=ctk.CTkFont(size=11))
         st_entry.insert(0, start_val)
-        st_entry.pack(side="left", padx=(0, 6))
+        st_entry.pack(side="left", padx=(0, 4))
 
-        ctk.CTkLabel(row, text="to", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 4))
-        et_entry = ctk.CTkEntry(row, width=56, height=24, font=ctk.CTkFont(size=11))
+        ctk.CTkLabel(row, text="to", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 3))
+        et_entry = ctk.CTkEntry(row, width=54, height=24, font=ctk.CTkFont(size=11))
         et_entry.insert(0, end_val)
         et_entry.pack(side="left", padx=(0, 8))
 
-        entry_data = {"frame": row, "start_entry": st_entry, "end_entry": et_entry}
+        # Days of Week container
+        days_box = ctk.CTkFrame(row, fg_color="transparent")
+        days_box.pack(side="left", padx=(0, 8))
+
+        day_vars = {}
+        day_buttons = {}
+        all_days_keys = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        normalized_days = days_val if days_val is not None else ["All"]
+        is_all_active = ("All" in normalized_days) or (len(normalized_days) == 7)
+
+        def _update_all_btn():
+            all_on = all(day_vars[k].get() for k in all_days_keys)
+            all_btn.configure(
+                fg_color=COLOR_GREEN if all_on else "#2A2A30",
+                text_color="#FFFFFF" if all_on else "#8E8E93"
+            )
+
+        def _on_day_clicked(k):
+            new_state = not day_vars[k].get()
+            day_vars[k].set(new_state)
+            day_buttons[k].configure(
+                fg_color=COLOR_GREEN if new_state else "#2A2A30",
+                text_color="#FFFFFF" if new_state else "#8E8E93"
+            )
+            _update_all_btn()
+
+        def _on_all_clicked():
+            current_all = all(day_vars[k].get() for k in all_days_keys)
+            target = not current_all
+            for k in all_days_keys:
+                day_vars[k].set(target)
+                day_buttons[k].configure(
+                    fg_color=COLOR_GREEN if target else "#2A2A30",
+                    text_color="#FFFFFF" if target else "#8E8E93"
+                )
+            _update_all_btn()
+
+        all_btn = ctk.CTkButton(
+            days_box,
+            text="All",
+            width=28,
+            height=22,
+            font=ctk.CTkFont(size=10, weight="bold"),
+            fg_color=COLOR_GREEN if is_all_active else "#2A2A30",
+            text_color="#FFFFFF" if is_all_active else "#8E8E93",
+            hover_color=COLOR_GREEN_HOVER,
+            command=_on_all_clicked
+        )
+        all_btn.pack(side="left", padx=(0, 3))
+
+        day_labels = [("Mon", "M"), ("Tue", "T"), ("Wed", "W"), ("Thu", "T"), ("Fri", "F"), ("Sat", "S"), ("Sun", "S")]
+        for k, lbl in day_labels:
+            active = is_all_active or (k in normalized_days)
+            var = ctk.BooleanVar(value=active)
+            day_vars[k] = var
+
+            btn = ctk.CTkButton(
+                days_box,
+                text=lbl,
+                width=22,
+                height=22,
+                font=ctk.CTkFont(size=10, weight="bold"),
+                fg_color=COLOR_GREEN if active else "#2A2A30",
+                text_color="#FFFFFF" if active else "#8E8E93",
+                hover_color=COLOR_GREEN_HOVER,
+                command=lambda day_key=k: _on_day_clicked(day_key)
+            )
+            btn.pack(side="left", padx=1)
+            day_buttons[k] = btn
+
+        entry_data = {
+            "frame": row,
+            "start_entry": st_entry,
+            "end_entry": et_entry,
+            "day_vars": day_vars,
+            "day_buttons": day_buttons
+        }
 
         del_btn = ctk.CTkButton(
             row,
@@ -753,7 +881,7 @@ class AudioGuardApp:
         self.slot_rows.append(entry_data)
 
     def on_add_slot_clicked(self):
-        self._create_slot_row("12:00", "14:00")
+        self._create_slot_row("12:00", "14:00", ["All"])
 
     def _delete_slot_row(self, row_dict):
         if len(self.slot_rows) <= 1:
@@ -800,7 +928,12 @@ class AudioGuardApp:
         for r in self.slot_rows:
             st = r["start_entry"].get().strip()
             et = r["end_entry"].get().strip()
-            slots.append({"start": st, "end": et})
+            sel_days = [d for d, var in r["day_vars"].items() if var.get()]
+            if not sel_days or len(sel_days) == 7:
+                days_payload = ["All"]
+            else:
+                days_payload = sel_days
+            slots.append({"start": st, "end": et, "days": days_payload})
 
         success = self.scheduler.update_schedules(enabled=enabled, slots=slots)
         if success:
@@ -1147,6 +1280,12 @@ class AudioGuardApp:
                 args=(folder, self.audio.recording_file_path),
                 daemon=True
             ).start()
+
+    def on_folder_grouping_changed(self, choice: str):
+        mapped = self.grouping_options.get(choice, "monthly")
+        self.config.set("folder_grouping", mapped)
+        self._update_dashboard_summary()
+        logger.info("Folder grouping updated to: %s (%s)", choice, mapped)
 
     def _startup_cleanup(self):
         try:

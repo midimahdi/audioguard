@@ -11,13 +11,15 @@
   Records at 48,000 Hz, 24-bit stereo. Performs an explicit `sf_file.flush()` and `os.fsync()` every 1.0 second. If power cuts mid-sentence, the recording is 100% loss-free and playable right up to the exact moment power was lost.
 - **Automatic MP3 Export with Power-Cut Recovery:**  
   Generates a lightweight `.mp3` copy alongside the master `.flac` file upon session completion. If power was cut while recording, AudioGuard's stream-chunk recovery engine automatically detects the unclosed FLAC file upon system reboot, safely decodes all flushed frames, and exports the MP3 copy.
-- **Smart Multi-Slot Daily Scheduler:**  
-  Supports arbitrary daily time frames (e.g. `09:00–10:00`, `12:00–14:00`, `18:00–21:00`) with a master toggle protected by accidental-click confirmation prompts.
+- **Smart Multi-Slot Weekly & Daily Scheduler:**  
+  Supports arbitrary daily time frames (e.g. `09:00–10:00`, `12:00–14:00`, `18:00–21:00`) with per-slot day-of-the-week selection (`[All]` or individual `[M] [T] [W] [T] [F] [S] [S]` toggles, e.g. Friday only for Jumu'ah, all days for daily halaqaat). Master toggle is protected by accidental-click confirmation prompts.
   - **Late-Boot Catch-Up:** If the PC boots mid-window, recording starts immediately.
   - **Speech Overtime Extension:** If voice activity is still detected when the scheduled end time is reached, recording automatically extends for up to an extra 1 hour (+60 min cap) and finalizes once 90 seconds of silence occurs.
   - **Intelligent Pause Reset:** Stopping a scheduled recording suppresses auto-restart only for that active window; suppression automatically resets as soon as that slot passes.
-- **Fail-Safe Storage Guard:**  
-  If the chosen backup path (e.g. external USB drive) is detached or inaccessible, AudioGuard automatically redirects recording to `C:\AudioBackups\` (Windows) or `~/AudioBackups/` (macOS) so audio is never dropped.
+- **Fail-Safe Storage Guard & Folder Grouping:**  
+  - If the chosen backup path (e.g. external USB drive) is detached or inaccessible, AudioGuard automatically redirects recording to `C:\AudioBackups\` (Windows) or `~/AudioBackups/` (macOS) so audio is never dropped.
+  - **Folder Organization:** Organize recordings into subfolders: `Monthly (YYYY-MM)` [Default], `Daily (YYYY-MM-DD)`, `Weekly (YYYY-Www)`, or `None (Flat)`.
+  - **Recursive Retention & Recovery:** File retention cleanup and boot MP3 recovery recursively scan all subfolders and safely prune empty directories.
 - **Customizable File Naming:**  
   Configure custom naming patterns using dynamic tokens (`{date}`, `{time}`, `{year}`, `{month}`, `{day}`, `{hour}`, `{min}`, `{sec}`, `{mode}`) with real-time live preview and character sanitization.
 - **Volunteer-Proof Dark UI & System Integration:**  
@@ -27,6 +29,7 @@
   - Zero-CPU idle when minimized or hidden (`winfo_viewable()`).
   - Single-instance lock via Named Mutex / POSIX lock and localhost IPC (`127.0.0.1:54983`) that brings existing window to the front without error popups.
   - 1-click **"Open Diagnostic Log File"** shortcut to open `app.log` in the system editor.
+  - **Self-Limiting Rotating Logs:** Diagnostic logs are capped at 2 MB with 2 backups (~6 MB hard cap total forever), ensuring disk space is never wasted.
 - **Cross-Platform Sleep Prevention:**  
   - Windows: Win32 `SetThreadExecutionState` (`ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED`).
   - macOS: Integrated `/usr/bin/caffeinate -dimu` process preventing display, system, and disk idle sleep during active recording sessions.

@@ -507,7 +507,11 @@ class AudioEngine:
             logger.warning("Recording is already in progress.")
             return self.recording_file_path
 
-        from config_manager import get_free_disk_space_gb, cleanup_old_backups, format_recording_filename, get_default_backup_folder
+        from config_manager import (
+            get_free_disk_space_gb, cleanup_old_backups,
+            format_recording_filename, get_default_backup_folder,
+            get_recording_subfolder
+        )
 
         backup_folder_str = self.config.get("backup_folder", "")
         backup_folder = Path(backup_folder_str) if backup_folder_str else Path(get_default_backup_folder())
@@ -523,6 +527,7 @@ class AudioEngine:
             backup_folder.mkdir(parents=True, exist_ok=True)
 
         pattern = self.config.get("filename_pattern", "Audio_Backup_{date}_{time}")
+        folder_grouping = self.config.get("folder_grouping", "monthly")
         retention_days = int(self.config.get("retention_days", 30))
 
         # Low-Disk Space Pre-Flight Check
@@ -546,16 +551,19 @@ class AudioEngine:
         self.low_disk_message = ""
 
         now = datetime.now()
+        # Resolve target directory based on grouping (e.g. C:\AudioBackups\2026-11\)
+        target_dir = get_recording_subfolder(str(backup_folder), folder_grouping=folder_grouping, dt=now)
+
         candidate_name = format_recording_filename(pattern, is_manual=manual, dt=now)
-        target_path = backup_folder / candidate_name
+        target_path = target_dir / candidate_name
 
         # Collision avoidance: append _1, _2 if file with exact name already exists
         if target_path.exists():
             stem = target_path.stem
             counter = 1
-            while (backup_folder / f"{stem}_{counter}.flac").exists():
+            while (target_dir / f"{stem}_{counter}.flac").exists():
                 counter += 1
-            target_path = backup_folder / f"{stem}_{counter}.flac"
+            target_path = target_dir / f"{stem}_{counter}.flac"
 
         file_path = str(target_path)
 

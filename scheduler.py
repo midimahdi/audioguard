@@ -9,10 +9,12 @@ AudioGuard - Smart Scheduler & Multi-Slot Auto-Recording Engine
 
 import time
 import logging
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta
 from typing import Callable, Optional, Tuple, List, Dict, Any
 
 logger = logging.getLogger("AudioGuard.Scheduler")
+
+DAYS_OF_WEEK = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 class SchedulerEngine:
@@ -34,13 +36,13 @@ class SchedulerEngine:
 
         # Schedule configuration
         self.enabled: bool = bool(self.config.get("schedule_enabled", True))
-        self.slots: List[Dict[str, str]] = self._load_slots_from_config()
+        self.slots: List[Dict[str, Any]] = self._load_slots_from_config()
 
         # State tracking
         self.is_scheduled_recording_active = False
         self.is_manual_recording_active = False
-        self.active_slot: Optional[Dict[str, str]] = None
-        self.suppressed_slot: Optional[Dict[str, str]] = None
+        self.active_slot: Optional[Dict[str, Any]] = None
+        self.suppressed_slot: Optional[Dict[str, Any]] = None
         self.suppressed_for_current_window = False
         self.last_evaluated_window_state = False
 
@@ -50,21 +52,28 @@ class SchedulerEngine:
         self.max_overtime_seconds = 3600.0   # Up to 1 extra hour max
         self.overtime_silence_limit = 90.0   # Stop if silence lasts 90 continuous seconds during overtime
 
-    def _load_slots_from_config(self) -> List[Dict[str, str]]:
+    def _load_slots_from_config(self) -> List[Dict[str, Any]]:
         """Loads schedule slots from config with fallback to legacy single-schedule fields."""
         raw_slots = self.config.get("schedule_slots")
         if isinstance(raw_slots, list) and len(raw_slots) > 0:
             cleaned = []
             for s in raw_slots:
                 if isinstance(s, dict) and "start" in s and "end" in s:
-                    cleaned.append({"start": str(s["start"]).strip(), "end": str(s["end"]).strip()})
+                    raw_days = s.get("days", ["All"])
+                    if not isinstance(raw_days, list) or not raw_days:
+                        raw_days = ["All"]
+                    cleaned.append({
+                        "start": str(s["start"]).strip(),
+                        "end": str(s["end"]).strip(),
+                        "days": raw_days
+                    })
             if cleaned:
                 return cleaned
 
         # Fallback to legacy single schedule
         s_start = self.config.get("schedule_start", "18:00")
         s_end = self.config.get("schedule_end", "21:00")
-        return [{"start": s_start, "end": s_end}]
+        return [{"start": s_start, "end": s_end, "days": ["All"]}]
 
     @staticmethod
     def _parse_time(time_str: str) -> dtime:
@@ -77,7 +86,7 @@ class SchedulerEngine:
             raise ValueError(f"Hour ({hour}) or minute ({minute}) out of valid range.")
         return dtime(hour, minute)
 
-    def update_schedules(self, enabled: bool, slots: List[Dict[str, str]]) -> bool:
+    def update_schedules(self, enabled: bool, slots: List[Dict[str, Any]]) -> bool:
         """
         Validates and updates all schedule slots and enable state.
         """
@@ -86,10 +95,13 @@ class SchedulerEngine:
             for s in slots:
                 st_str = s.get("start", "").strip()
                 et_str = s.get("end", "").strip()
+                days = s.get("days", ["All"])
+                if not isinstance(days, list) or not days:
+                    days = ["All"]
                 # Validate format
                 self._parse_time(st_str)
                 self._parse_time(et_str)
-                valid_slots.append({"start": st_str, "end": et_str})
+                valid_slots.append({"start": st_str, "end": et_str, "days": days})
 
             self.enabled = enabled
             self.slots = valid_slots
@@ -108,9 +120,9 @@ class SchedulerEngine:
             logger.error("Failed to update schedules: %s", e)
             return False
 
-    def is_inside_schedule_window(self, check_dt: Optional[datetime] = None) -> Tuple[bool, Optional[Dict[str, str]]]:
+    def is_inside_schedule_window(self, check_dt: Optional[datetime] = None) -> Tuple[bool, Optional[Dict[str, Any]]]:
         """
-        Checks if current time is inside ANY configured schedule window.
+        Checks if current time is inside ANY configured schedule window for today.
         Returns (is_inside, matching_slot_dict).
         """
         if not self.enabled or not self.slots:
@@ -119,8 +131,13 @@ class SchedulerEngine:
         if check_dt is None:
             check_dt = datetime.now()
         now_t = check_dt.time()
+        current_day = check_dt.strftime("%a")
 
         for slot in self.slots:
+            days = slot.get("days", ["All"])
+            if "All" not in days and current_day not in days:
+                continue
+
             try:
                 st = self._parse_time(slot["start"])
                 et = self._parse_time(slot["end"])
@@ -139,8 +156,8 @@ class SchedulerEngine:
 
     def get_next_slot(self, check_dt: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
         """
-        Returns the next upcoming schedule slot:
-        {"slot": {"start": "...", "end": "..."}, "is_today": bool}
+        Returns the next upcoming schedule slot across the next 7 days:
+        {"slot": {"start": "...", "end": "...", "days": [...]}, "is_today": bool, "day_name": str}
         """
         if not self.enabled or not self.slots:
             return None
@@ -149,25 +166,33 @@ class SchedulerEngine:
             check_dt = datetime.now()
         now_t = check_dt.time()
 
-        # Check for upcoming slot later today
-        today_upcoming = []
-        all_parsed = []
-        for slot in self.slots:
-            try:
-                st = self._parse_time(slot["start"])
-                all_parsed.append((st, slot))
-                if st > now_t:
-                    today_upcoming.append((st, slot))
-            except Exception:
-                continue
+        for day_offset in range(7):
+            target_dt = check_dt + timedelta(days=day_offset)
+            target_day_name = target_dt.strftime("%a")
+            upcoming_for_day = []
 
-        if today_upcoming:
-            today_upcoming.sort(key=lambda x: x[0])
-            return {"slot": today_upcoming[0][1], "is_today": True}
+            for slot in self.slots:
+                days = slot.get("days", ["All"])
+                if "All" not in days and target_day_name not in days:
+                    continue
 
-        if all_parsed:
-            all_parsed.sort(key=lambda x: x[0])
-            return {"slot": all_parsed[0][1], "is_today": False}
+                try:
+                    st = self._parse_time(slot["start"])
+                    if day_offset == 0:
+                        if st > now_t:
+                            upcoming_for_day.append((st, slot))
+                    else:
+                        upcoming_for_day.append((st, slot))
+                except Exception:
+                    continue
+
+            if upcoming_for_day:
+                upcoming_for_day.sort(key=lambda x: x[0])
+                return {
+                    "slot": upcoming_for_day[0][1],
+                    "is_today": (day_offset == 0),
+                    "day_name": "Today" if day_offset == 0 else target_day_name
+                }
 
         return None
 
