@@ -14,13 +14,15 @@ from pathlib import Path
 logger = logging.getLogger("AudioGuard")
 
 def get_app_dir() -> Path:
-    """Returns the application data directory (%APPDATA%\\AudioGuard or fallback)."""
+    """Returns the application data directory (%APPDATA%\\AudioGuard on Windows, ~/Library/Application Support/AudioGuard on macOS, or ~/.config/AudioGuard)."""
     if sys.platform == "win32":
         appdata = os.environ.get("APPDATA")
         if appdata:
             base = Path(appdata)
         else:
             base = Path.home() / "AppData" / "Roaming"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support"
     else:
         base = Path.home() / ".config"
     app_dir = base / "AudioGuard"
@@ -197,16 +199,64 @@ class ConfigManager:
 
 
 # -------------------------------------------------------------
-# Windows Registry: Run on Boot
+# System Startup: Run on Boot (Windows Registry & macOS LaunchAgent)
 # -------------------------------------------------------------
 REG_RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_REG_NAME = "AudioGuard"
 OLD_APP_REG_NAME = "MosqueAudioGuard"
 
+def _get_macos_launch_agent_path() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / "com.mahdi.audioguard.plist"
+
+def set_macos_startup(enabled: bool) -> bool:
+    """Enables or disables auto-start on macOS boot via LaunchAgent plist with --minimized flag."""
+    plist_path = _get_macos_launch_agent_path()
+    try:
+        if enabled:
+            plist_path.parent.mkdir(parents=True, exist_ok=True)
+            if getattr(sys, "frozen", False):
+                exec_target = sys.executable
+                args_xml = f"        <string>{exec_target}</string>\n        <string>--minimized</string>"
+            else:
+                exec_target = sys.executable
+                script_path = os.path.abspath(sys.argv[0])
+                args_xml = f"        <string>{exec_target}</string>\n        <string>{script_path}</string>\n        <string>--minimized</string>"
+
+            content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mahdi.audioguard</string>
+    <key>ProgramArguments</key>
+    <array>
+{args_xml}
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
+"""
+            plist_path.write_text(content, encoding="utf-8")
+            logger.info("macOS Startup LaunchAgent enabled: %s", plist_path)
+        else:
+            if plist_path.exists():
+                plist_path.unlink()
+                logger.info("macOS Startup LaunchAgent disabled: %s", plist_path)
+        return True
+    except Exception as e:
+        logger.error("Failed to update macOS LaunchAgent: %s", e)
+        return False
+
+def is_macos_startup_enabled() -> bool:
+    """Checks whether macOS LaunchAgent exists."""
+    return _get_macos_launch_agent_path().exists()
+
 def set_windows_startup(enabled: bool) -> bool:
     """Enables or disables auto-start on Windows boot via HKCU\\...\\Run with --minimized flag."""
     if sys.platform != "win32":
-        logger.info("Skipping Windows startup registration on non-Windows OS (%s)", sys.platform)
         return False
     try:
         import winreg
@@ -254,6 +304,22 @@ def is_windows_startup_enabled() -> bool:
     except Exception as e:
         logger.error("Error reading Windows Run registry key: %s", e)
         return False
+
+def set_autostart(enabled: bool) -> bool:
+    """Cross-platform startup registration (Windows Registry or macOS LaunchAgent)."""
+    if sys.platform == "win32":
+        return set_windows_startup(enabled)
+    elif sys.platform == "darwin":
+        return set_macos_startup(enabled)
+    return False
+
+def is_autostart_enabled() -> bool:
+    """Cross-platform check for startup registration."""
+    if sys.platform == "win32":
+        return is_windows_startup_enabled()
+    elif sys.platform == "darwin":
+        return is_macos_startup_enabled()
+    return False
 
 
 # -------------------------------------------------------------

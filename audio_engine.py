@@ -15,6 +15,7 @@ import math
 import queue
 import logging
 import threading
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any, List
@@ -441,34 +442,56 @@ class AudioEngine:
         return (time.time() - self._last_voice_time) < within_seconds
 
     # -------------------------------------------------------------
-    # Windows Sleep Prevention (SetThreadExecutionState)
+    # Cross-Platform Sleep Prevention (Windows SetThreadExecutionState & macOS caffeinate)
     # -------------------------------------------------------------
-    @staticmethod
-    def _set_sleep_prevention(enable: bool):
-        """
-        Prevents Windows from entering sleep or idle suspend while recording.
-        Uses SetThreadExecutionState with ES_SYSTEM_REQUIRED and ES_AWAYMODE_REQUIRED.
-        """
-        if sys.platform != "win32":
-            return
-        try:
-            import ctypes
-            ES_CONTINUOUS = 0x80000000
-            ES_SYSTEM_REQUIRED = 0x00000001
-            ES_AWAYMODE_REQUIRED = 0x00000040
+    _caffeinate_proc: Optional[subprocess.Popen] = None
 
+    @classmethod
+    def _set_sleep_prevention(cls, enable: bool):
+        """
+        Prevents OS from entering sleep or idle suspend while recording.
+        - Windows: Uses SetThreadExecutionState with ES_SYSTEM_REQUIRED and ES_AWAYMODE_REQUIRED.
+        - macOS: Uses /usr/bin/caffeinate -dimu.
+        """
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ES_CONTINUOUS = 0x80000000
+                ES_SYSTEM_REQUIRED = 0x00000001
+                ES_AWAYMODE_REQUIRED = 0x00000040
+
+                if enable:
+                    res = ctypes.windll.kernel32.SetThreadExecutionState(
+                        ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED
+                    )
+                    if res == 0:
+                        ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+                    logger.info("Windows Sleep Prevention: ACTIVE (ES_SYSTEM_REQUIRED)")
+                else:
+                    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+                    logger.info("Windows Sleep Prevention: RELEASED (Normal idle restored)")
+            except Exception as e:
+                logger.warning("Failed to configure Windows thread execution state: %s", e)
+        elif sys.platform == "darwin":
             if enable:
-                res = ctypes.windll.kernel32.SetThreadExecutionState(
-                    ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED
-                )
-                if res == 0:
-                    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
-                logger.info("Windows Sleep Prevention: ACTIVE (ES_SYSTEM_REQUIRED)")
+                try:
+                    if cls._caffeinate_proc is None or cls._caffeinate_proc.poll() is not None:
+                        cls._caffeinate_proc = subprocess.Popen(
+                            ["/usr/bin/caffeinate", "-d", "-i", "-m", "-u"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL
+                        )
+                        logger.info("macOS Sleep Prevention: ACTIVE (caffeinate PID %s)", cls._caffeinate_proc.pid)
+                except Exception as e:
+                    logger.warning("Failed to launch macOS caffeinate: %s", e)
             else:
-                ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
-                logger.info("Windows Sleep Prevention: RELEASED (Normal idle restored)")
-        except Exception as e:
-            logger.warning("Failed to configure Windows thread execution state: %s", e)
+                try:
+                    if cls._caffeinate_proc is not None:
+                        cls._caffeinate_proc.terminate()
+                        cls._caffeinate_proc = None
+                        logger.info("macOS Sleep Prevention: RELEASED")
+                except Exception as e:
+                    logger.warning("Failed to terminate macOS caffeinate: %s", e)
 
     # -------------------------------------------------------------
     # Recording Session Control (Single-File Crash-Proof FLAC)

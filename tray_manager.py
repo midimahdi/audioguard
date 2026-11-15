@@ -11,7 +11,13 @@ import logging
 import threading
 from typing import Callable, Optional
 from PIL import Image, ImageDraw
-import pystray
+
+try:
+    import pystray
+    HAS_PYSTRAY = True
+except ImportError:
+    pystray = None
+    HAS_PYSTRAY = False
 
 logger = logging.getLogger("AudioGuard.Tray")
 
@@ -77,6 +83,10 @@ class TrayManager:
 
     def start(self):
         """Initializes and runs the system tray icon in a dedicated daemon thread."""
+        if sys.platform != "win32" or not HAS_PYSTRAY:
+            logger.info("System Tray skipped on %s (Dock / foreground mode active)", sys.platform)
+            return
+
         def run():
             try:
                 menu = pystray.Menu(
@@ -131,12 +141,21 @@ class TrayManager:
         self.update_recording_state(recording, tooltip_text)
 
     def notify(self, title: str, message: str):
-        """Displays a brief Windows balloon notification."""
+        """Displays a brief balloon or system notification."""
         if self.icon:
             try:
                 self.icon.notify(title=title, message=message)
             except Exception as e:
                 logger.debug("Tray notification error: %s", e)
+        elif sys.platform == "darwin":
+            try:
+                import subprocess
+                subprocess.run([
+                    "osascript", "-e",
+                    f'display notification "{message}" with title "{title}"'
+                ], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                pass
 
     def stop(self):
         """Stops and cleans up the system tray icon."""

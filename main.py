@@ -26,7 +26,7 @@ import customtkinter as ctk
 
 from config_manager import (
     ConfigManager, setup_logging, logger,
-    is_windows_startup_enabled, set_windows_startup,
+    is_autostart_enabled, set_autostart,
     SingleInstanceLock, get_free_disk_space_gb, cleanup_old_backups
 )
 from audio_engine import AudioEngine
@@ -148,8 +148,15 @@ class AudioGuardApp:
         self._meter_ui_tick()
         self._timer_ui_tick()
 
-        # Intercept window close button (volunteer-proof hide to tray)
+        # Intercept window close button (volunteer-proof hide to tray / Dock)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close_button_clicked)
+
+        # macOS Dock reopen hook (restores window when Dock icon is clicked)
+        if sys.platform == "darwin":
+            try:
+                self.root.createcommand("::tk::mac::ReopenApplication", self.show_window_from_tray)
+            except Exception as e:
+                logger.debug("Could not bind macOS ReopenApplication: %s", e)
 
     def _start_ipc_server(self):
         """Listens on localhost for wake-up commands when user opens shortcut."""
@@ -652,10 +659,11 @@ class AudioGuardApp:
         opts_frame = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         opts_frame.pack(fill="x", padx=16, pady=(0, 16))
 
-        self.startup_var = ctk.BooleanVar(value=is_windows_startup_enabled())
+        self.startup_var = ctk.BooleanVar(value=is_autostart_enabled())
+        os_label = "Windows" if sys.platform == "win32" else "macOS" if sys.platform == "darwin" else "System"
         self.startup_chk = ctk.CTkCheckBox(
             opts_frame,
-            text="Launch on Windows startup (in background)",
+            text=f"Launch on {os_label} startup (in background)",
             variable=self.startup_var,
             font=ctk.CTkFont(size=12),
             command=self.on_startup_toggled
@@ -1098,7 +1106,7 @@ class AudioGuardApp:
 
     def on_startup_toggled(self):
         enabled = self.startup_var.get()
-        set_windows_startup(enabled)
+        set_autostart(enabled)
         self.config.set("auto_start_on_boot", enabled)
 
     def _on_naming_pattern_changed(self, event=None):
