@@ -6,14 +6,20 @@
 *Records in perfect quality and protects against sudden power cuts, device shutdowns, or accidental app closes.*
 
 [![Latest Release](https://img.shields.io/github/v/release/midimahdi/audioguard?color=10B981&label=Release)](https://github.com/midimahdi/audioguard/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/midimahdi/audioguard/total?color=blue&label=Downloads)](https://github.com/midimahdi/audioguard/releases)
 [![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-3B82F6)](https://github.com/midimahdi/audioguard/releases/latest)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/midimahdi/audioguard/build.yml?branch=main&label=CI%2FCD)](https://github.com/midimahdi/audioguard/actions)
 [![License](https://img.shields.io/badge/License-Proprietary-gray)](LICENSE)
+
+<br/>
+
+[**📥 Direct Downloads**](#downloads) &nbsp;•&nbsp; [**🎯 Why AudioGuard**](#why) &nbsp;•&nbsp; [**🛠️ Developer Guide**](#developer-guide) &nbsp;•&nbsp; [**🔬 Architecture**](#architecture)
 
 </div>
 
 ---
 
+<a id="downloads"></a>
 ## ⚡ Direct Downloads (Latest Release: v1.5.4)
 
 Choose your operating system to start downloading immediately:
@@ -48,6 +54,7 @@ Choose your operating system to start downloading immediately:
 
 ---
 
+<a id="why"></a>
 ## 🎯 Why AudioGuard?
 
 Traditional recording software (like Audacity or OBS) is made for studio work with someone watching the screen. If power cuts, someone trips on a plug, or the computer shuts down, the file corrupts and the whole recording is lost.
@@ -70,6 +77,7 @@ Audio Input ────► Continuous Auto-Save ────► Raw Audio File
 
 ---
 
+<a id="developer-guide"></a>
 <details>
 <summary><b>🛠️ Developer Guide: Building from Source</b></summary>
 
@@ -108,6 +116,7 @@ python verify_engine.py
 
 ---
 
+<a id="architecture"></a>
 <details>
 <summary><b>🔬 Technical Architecture & Safety Mechanisms</b></summary>
 
