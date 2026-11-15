@@ -10,7 +10,7 @@
 - **Crash-Proof Lossless FLAC Engine:**  
   Records at 48,000 Hz, 24-bit stereo. Performs an explicit `sf_file.flush()` and `os.fsync()` every 1.0 second. If power cuts mid-sentence, the recording is 100% loss-free and playable right up to the exact moment power was lost.
 - **Automatic MP3 Export with Power-Cut Recovery:**  
-  Generates a lightweight, WhatsApp- and phone-friendly `.mp3` copy alongside the master `.flac` file upon session completion. If power was cut while recording, AudioGuard's stream-chunk recovery engine automatically detects the unclosed FLAC file upon system reboot, safely decodes all flushed frames, and exports the MP3 copy.
+  Generates a lightweight `.mp3` copy alongside the master `.flac` file upon session completion. If power was cut while recording, AudioGuard's stream-chunk recovery engine automatically detects the unclosed FLAC file upon system reboot, safely decodes all flushed frames, and exports the MP3 copy.
 - **Smart Multi-Slot Daily Scheduler:**  
   Supports arbitrary daily time frames (e.g. `09:00–10:00`, `12:00–14:00`, `18:00–21:00`) with a master toggle protected by accidental-click confirmation prompts.
   - **Late-Boot Catch-Up:** If the PC boots mid-window, recording starts immediately.
@@ -45,10 +45,12 @@
 
 ### macOS (12 Monterey through 15 Sequoia)
 
-| Type | Architecture | File | Description |
+| Architecture | Package | File | Description |
 | :--- | :--- | :--- | :--- |
-| **Drag-and-Drop DMG** | Universal (Apple Silicon & Intel) | `AudioGuard-macOS.dmg` | Standard macOS disk image. Open and drag `AudioGuard.app` into `/Applications`. Includes microphone permissions and App Nap disabled. |
-| **Application Bundle ZIP** | Universal (Apple Silicon & Intel) | `AudioGuard-macOS.zip` | Standalone zipped `.app` bundle. |
+| **Apple Silicon (M1/M2/M3/M4)** | Drag-and-Drop DMG | `AudioGuard-macOS-AppleSilicon.dmg` | Native ARM64 disk image for modern Macs. |
+| **Apple Silicon (M1/M2/M3/M4)** | App Bundle ZIP | `AudioGuard-macOS-AppleSilicon.zip` | Standalone `.app` bundle (ARM64). |
+| **Intel (Core i5/i7/i9 / Xeon)** | Drag-and-Drop DMG | `AudioGuard-macOS-Intel.dmg` | Native x86_64 disk image for older Intel Macs. |
+| **Intel (Core i5/i7/i9 / Xeon)** | App Bundle ZIP | `AudioGuard-macOS-Intel.zip` | Standalone `.app` bundle (x86_64). |
 
 ---
 

@@ -93,8 +93,15 @@ jobs:
           path: dist-installer/*
 
   build-macos:
-    name: macOS (Universal / DMG)
-    runs-on: macos-latest
+    name: macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - arch: AppleSilicon
+            os: macos-latest
+          - arch: Intel
+            os: macos-13
 
     steps:
       - name: Checkout Source
@@ -112,12 +119,12 @@ jobs:
 
       - name: Build macOS Application Bundle & DMG
         run: |
-          bash build_mac.sh
+          bash build_mac.sh "AudioGuard-macOS-${{ matrix.arch }}"
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AudioGuard-macOS
+          name: AudioGuard-macOS-${{ matrix.arch }}
           path: dist-installer/*
 
   release:

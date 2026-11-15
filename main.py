@@ -640,7 +640,7 @@ class AudioGuardApp:
         self.auto_export_mp3_var = ctk.BooleanVar(value=self.config.get("auto_export_mp3", True))
         self.auto_export_mp3_chk = ctk.CTkCheckBox(
             self.settings_scroll,
-            text="Also create MP3 copy after recording (WhatsApp & mobile friendly)",
+            text="Also create MP3 copy after recording",
             variable=self.auto_export_mp3_var,
             font=ctk.CTkFont(size=11),
             command=self.on_auto_export_mp3_toggled

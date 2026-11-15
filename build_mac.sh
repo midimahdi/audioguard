@@ -48,18 +48,19 @@ codesign --force --deep --sign - "dist/AudioGuard.app"
 
 # 6. Package Drag-and-Drop DMG & ZIP Archives
 echo "[6/6] Generating distribution DMG and ZIP..."
+PKG_NAME="${1:-AudioGuard-macOS}"
 mkdir -p dist-installer
 mkdir -p dist-dmg
 cp -R "dist/AudioGuard.app" dist-dmg/
 ln -s /Applications dist-dmg/Applications
-hdiutil create -volname "AudioGuard" -srcfolder dist-dmg -ov -format UDZO "dist-installer/AudioGuard-macOS.dmg"
+hdiutil create -volname "AudioGuard" -srcfolder dist-dmg -ov -format UDZO "dist-installer/${PKG_NAME}.dmg"
 rm -rf dist-dmg
 
 # Also create zip bundle
-ditto -c -k --sequesterRsrc --keepParent "dist/AudioGuard.app" "dist-installer/AudioGuard-macOS.zip"
+ditto -c -k --sequesterRsrc --keepParent "dist/AudioGuard.app" "dist-installer/${PKG_NAME}.zip"
 
 echo "================================================================="
 echo "[SUCCESS] macOS Build Completed!"
-echo "DMG: dist-installer/AudioGuard-macOS.dmg"
-echo "ZIP: dist-installer/AudioGuard-macOS.zip"
+echo "DMG: dist-installer/${PKG_NAME}.dmg"
+echo "ZIP: dist-installer/${PKG_NAME}.zip"
 echo "================================================================="
