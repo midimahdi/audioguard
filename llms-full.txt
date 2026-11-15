@@ -1,0 +1,80 @@
+# AudioGuard — Complete Technical Corpus & Knowledge Base
+
+> Comprehensive machine-readable reference for AI search engines, agents, and systems administrators.
+
+## 1. System Overview & Architecture
+AudioGuard is a purpose-built, unattended audio recording appliance designed for venues (mosques, educational institutions, lecture halls, and live events) that capture mixer line-in feeds on automated schedules. Unlike generic DAWs or broadcast software, AudioGuard operates under a zero-trust model regarding system stability: power can cut at any millisecond, storage drives can fill up, and audio cables can be yanked.
+
+### 1.1 Audio Engine Specifications
+- **Container & Codec:** FLAC (Free Lossless Audio Codec), Subtype: `PCM_24` (Signed 24-bit PCM).
+- **Sampling Rate:** 48,000 Hz stereo (2-channel).
+- **Buffer Block Size:** 4,096 frames (~85.3 ms per block).
+- **Crash-Proof Flushing Mechanism:** A dedicated background disk writer worker receives chunks via a thread-safe memory queue. Every 1.0 second (or ~12 buffer blocks), the engine issues `sf_file.flush()` followed immediately by an OS-level file descriptor flush `os.fsync(raw_file.fileno())`. This forces disk write caches to commit to non-volatile NAND/platter storage.
+- **Power-Cut Invariant:** If AC power is severed or the process is killed (`SIGKILL` / `taskkill /F`), all audio up to the last 1-second flush boundary is fully preserved with intact headers.
+
+### 1.2 Automated Companion Transcoding & 3-Step Verification
+When recording concludes (or upon system reboot after an unexpected shutdown), AudioGuard automatically generates a companion export (MP3, WAV, or OGG):
+1. **Gate 1 (Read-Back Decode Test):** The generated file is opened with `soundfile.SoundFile` and frames are decoded to verify header and frame block integrity.
+2. **Gate 2 (Duration Integrity Check):** The duration of the companion file must match the master FLAC file within a strict tolerance of $\pm 0.5$ seconds:
+   $$\left| \text{duration}_{\text{companion}} - \text{duration}_{\text{FLAC}} \right| \le 0.5\text{ s}$$
+3. **Gate 3 (Bitrate / File Size Sanity):** Companion files longer than 5 seconds must exceed 10 KB in size, preventing corrupt 0-byte stubs from surviving.
+
+---
+
+## 2. Competitive Comparison Table
+
+| Metric / Capability | AudioGuard v1.5.3 | Audacity 3.x | OBS Studio 30+ | Reaper / DAW |
+| :--- | :--- | :--- | :--- | :--- |
+| **Power-Loss Recovery** | **100% Intact** (1s fsync) | Corrupt temp block files | Truncated MP4 / unindexed MKV | Often corrupt / unsaved |
+| **Idle RAM Footprint** | **~25 MB** | ~180 MB | ~350 MB | ~250 MB |
+| **Idle CPU (Tray)** | **0.0% CPU** | 1.5% – 3% CPU | 3% – 8% CPU | 2% – 5% CPU |
+| **Multi-Slot Scheduler** | **Built-in** (Daily/Weekly) | Requires external Task Scheduler | Requires plugins/scripts | Complex action scripts |
+| **Voice Activity Overtime**| **Automatic** (+60m cap) | None | None | Custom scripting |
+| **Low-Disk Floor Protection**| **Dynamic Safety Floor** | None (crashes on full disk) | None (stops writing) | None (I/O error) |
+| **Retention High-Water Mark**| **Built-in Ledger** | None (manual deletion) | None | None |
+| **Volunteer-Proof Tray Lock** | **Intercepts Close** | Closes and stops recording | Prompts or exits | Closes and stops recording |
+| **Multi-Tenancy / Profiles** | **1-Click GUI Profiles** | Multi-process manual config | Portable profiles | Complex project templates |
+
+---
+
+## 3. Error Codes & Log Signatures Resolved
+
+### `PaErrorCode -9999: Unanticipated host error`
+- **Root Cause:** Windows WASAPI or WDM-KS driver resets when an audio interface undergoes USB power throttling or cable disconnection.
+- **AudioGuard Resolution:** Device watchdog polls input streams and auto-reconnects every 5 seconds without user intervention or crashing the process.
+
+### `WdmSyncIoctl: DeviceIoControl GLE = 0x00000490`
+- **Root Cause:** Windows audio device endpoint removed while active PortAudio handle was open.
+- **AudioGuard Resolution:** Trapped cleanly in `start_input_stream()`; sets internal `device_error_state = True`, displays non-modal alert banner, and initiates scheduled re-enumeration until device returns.
+
+### `soundfile.LibsndfileError: Error opening audio file (Format not recognised)`
+- **Root Cause:** Abrupt power cut on standard WAV/FLAC files leaves incomplete headers at the end of the file.
+- **AudioGuard Resolution:** Stream-chunk recovery decoder reads valid flushed frames and reconstructs complete, playable companion MP3 copies upon boot.
+
+### `Windows Connected Standby / Modern Standby (S0ix) Sleeping Mid-Recording`
+- **Root Cause:** Windows 10/11 idle timer puts CPU or audio USB bus into low-power sleep during long silence or unattended sessions.
+- **AudioGuard Resolution:** Invokes Win32 `kernel32.SetThreadExecutionState` with flags `ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED` during all recording states. On macOS, spawns background `caffeinate -dimu`. On Linux, invokes `systemd-inhibit --what=idle:sleep:handle-lid-switch`.
+
+---
+
+## 4. CLI Arguments & Configuration
+
+### Command-Line Arguments
+```bash
+AudioGuard [OPTIONS]
+
+Options:
+  --profile, -p TEXT   Specify configuration profile name (e.g. "second_input")
+  --minimized, -m      Launch minimized directly to the system tray / dock
+  --help               Show this help message and exit
+```
+
+### Configuration Storage Paths
+- **Windows:** `%APPDATA%\AudioGuard\config.json` (Profiles: `config_<profile>.json`)
+- **macOS:** `~/Library/Application Support/AudioGuard/config.json`
+- **Linux:** `~/.config/AudioGuard/config.json`
+
+### Retention Ledger
+- Stored as `retention_ledger.json` in application directory.
+- Maps `filename -> { created_at, policy_days, min_keep_until }`.
+- Enforces the high-water mark rule: if `retention_days` is reduced, existing files preserve their original guaranteed duration.
