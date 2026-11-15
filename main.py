@@ -446,6 +446,7 @@ class AudioGuardApp:
             border_color=COLOR_PANEL_BORDER
         )
         self.settings_scroll.pack(fill="both", expand=True)
+        self._bind_touchpad_scroll()
 
         # Section 1: Audio Input Device
         mic_head = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
@@ -755,6 +756,34 @@ class AudioGuardApp:
             command=self.on_open_log_file
         )
         self.open_log_btn.pack(side="left")
+
+    def _bind_touchpad_scroll(self):
+        """
+        Binds modern Tk 9 <TouchpadScroll> events (TIP 684) so macOS and Windows
+        precision trackpads can scroll the settings view smoothly with two-finger gestures.
+        """
+        def _on_touchpad_scroll(event):
+            if self.current_view != "settings":
+                return
+            canvas = getattr(self.settings_scroll, "_parent_canvas", None)
+            if canvas is None or not canvas.winfo_exists():
+                return
+
+            # Decode 32-bit packed signed 16-bit delta values (TIP 684)
+            # High 16 bits = delta_x (horizontal), Low 16 bits = delta_y (vertical)
+            raw = int(getattr(event, "delta", 0) or 0) & 0xFFFFFFFF
+            delta_y = raw & 0xFFFF
+            if delta_y >= 0x8000:
+                delta_y -= 0x10000
+
+            if delta_y != 0:
+                # delta_y < 0 is swipe up / scroll down; canvas.yview_scroll takes positive units for down
+                canvas.yview_scroll(-delta_y, "units")
+
+        try:
+            self.root.bind_all("<TouchpadScroll>", _on_touchpad_scroll, add="+")
+        except Exception as e:
+            logger.debug("Could not bind <TouchpadScroll>: %s", e)
 
     # -------------------------------------------------------------
     # Multi-Slot Schedule Rows UI Helpers (with Day-of-Week Toggles)
