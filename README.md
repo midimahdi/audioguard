@@ -13,6 +13,7 @@
   Generates a lightweight `.mp3` copy alongside the master `.flac` file upon session completion. If power was cut while recording, AudioGuard's stream-chunk recovery engine automatically detects the unclosed FLAC file upon system reboot, safely decodes all flushed frames, and exports the MP3 copy.
 - **Smart Multi-Slot Weekly & Daily Scheduler:**  
   Supports arbitrary daily time frames (e.g. `09:00–10:00`, `12:00–14:00`, `18:00–21:00`) with per-slot day-of-the-week selection (`[All]` or individual `[M] [T] [W] [T] [F] [S] [S]` toggles, e.g. Friday only for Jumu'ah, all days for daily halaqaat). Master toggle is protected by accidental-click confirmation prompts.
+  - **Auto-Merging Overlapping Slots:** Overlapping or contiguous schedules sharing matching active days automatically merge into clean unified windows (e.g. `18:00–20:00` + `19:30–21:00` $\rightarrow$ `18:00–21:00`).
   - **Late-Boot Catch-Up:** If the PC boots mid-window, recording starts immediately.
   - **Speech Overtime Extension:** If voice activity is still detected when the scheduled end time is reached, recording automatically extends for up to an extra 1 hour (+60 min cap) and finalizes once 90 seconds of silence occurs.
   - **Intelligent Pause Reset:** Stopping a scheduled recording suppresses auto-restart only for that active window; suppression automatically resets as soon as that slot passes.
@@ -22,7 +23,8 @@
   - **Recursive Retention & Recovery:** File retention cleanup and boot MP3 recovery recursively scan all subfolders and safely prune empty directories.
 - **Customizable File Naming:**  
   Configure custom naming patterns using dynamic tokens (`{date}`, `{time}`, `{year}`, `{month}`, `{day}`, `{hour}`, `{min}`, `{sec}`, `{mode}`) with real-time live preview and character sanitization.
-- **Volunteer-Proof Dark UI & System Integration:**  
+- **Volunteer-Proof Dark UI, Multi-Language & System Integration:**  
+  - **Multi-Language (i18n):** Native in-place switching between **English**, **Arabic (العربية)**, and **French (Français)** across all dashboard cards, settings, buttons, and confirmation dialogs.
   - Dedicated Dashboard (Status Card, Level Meter, Summary, Action Button) and separate scrollable Settings panel.
   - Background protection: Closing the window minimizes to the Windows System Tray or macOS Dock.
   - Dedicated 1-second elapsed recording clock (`[HH:MM:SS]`).

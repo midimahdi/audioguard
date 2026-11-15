@@ -86,9 +86,73 @@ class SchedulerEngine:
             raise ValueError(f"Hour ({hour}) or minute ({minute}) out of valid range.")
         return dtime(hour, minute)
 
+    @classmethod
+    def merge_overlapping_slots(cls, slots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Merges overlapping or contiguous time slots that share the same active days.
+        For example:
+        - 18:00–20:00 and 19:30–21:00 (both All) -> 18:00–21:00 (All)
+        - 12:00–13:00 and 13:00–14:00 (both Fri) -> 12:00–14:00 (Fri)
+        """
+        if not slots or len(slots) <= 1:
+            return slots
+
+        def time_to_min(t_str: str) -> int:
+            parts = t_str.strip().split(":")
+            return int(parts[0]) * 60 + int(parts[1])
+
+        def min_to_time(m_val: int) -> str:
+            m_val = m_val % 1440
+            return f"{m_val // 60:02d}:{m_val % 60:02d}"
+
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for s in slots:
+            raw_days = s.get("days", ["All"])
+            if not isinstance(raw_days, list) or not raw_days:
+                raw_days = ["All"]
+            if "All" in raw_days:
+                key = ("All",)
+            else:
+                key = tuple(sorted(set(raw_days)))
+            groups[key].append(s)
+
+        merged_result: List[Dict[str, Any]] = []
+        for day_tuple, group_slots in groups.items():
+            intervals = []
+            for s in group_slots:
+                st = time_to_min(s["start"])
+                et = time_to_min(s["end"])
+                if et <= st:
+                    et += 1440
+                intervals.append([st, et])
+
+            intervals.sort(key=lambda x: x[0])
+            merged_intervals = []
+            for cur in intervals:
+                if not merged_intervals:
+                    merged_intervals.append(cur)
+                else:
+                    prev = merged_intervals[-1]
+                    if cur[0] <= prev[1]:  # overlapping or contiguous
+                        prev[1] = max(prev[1], cur[1])
+                    else:
+                        merged_intervals.append(cur)
+
+            days_list = list(day_tuple)
+            for st, et in merged_intervals:
+                merged_result.append({
+                    "start": min_to_time(st),
+                    "end": min_to_time(et),
+                    "days": days_list
+                })
+
+        merged_result.sort(key=lambda x: time_to_min(x["start"]))
+        return merged_result
+
     def update_schedules(self, enabled: bool, slots: List[Dict[str, Any]]) -> bool:
         """
-        Validates and updates all schedule slots and enable state.
+        Validates, merges overlapping slots, and updates all schedule slots and enable state.
         """
         try:
             valid_slots = []
@@ -102,6 +166,9 @@ class SchedulerEngine:
                 self._parse_time(st_str)
                 self._parse_time(et_str)
                 valid_slots.append({"start": st_str, "end": et_str, "days": days})
+
+            # Auto-merge any overlapping or contiguous slots sharing active days
+            valid_slots = self.merge_overlapping_slots(valid_slots)
 
             self.enabled = enabled
             self.slots = valid_slots

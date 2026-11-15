@@ -83,7 +83,8 @@ DEFAULT_CONFIG = {
     "auto_export_mp3": True,
     "retention_days": 30,
     "auto_start_on_boot": True,
-    "monitoring_enabled": False
+    "monitoring_enabled": False,
+    "language": "en"
 }
 
 def get_recording_subfolder(base_folder: str, folder_grouping: str = "monthly", dt=None) -> Path:

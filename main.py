@@ -34,6 +34,9 @@ from config_manager import (
 from audio_engine import AudioEngine
 from scheduler import SchedulerEngine
 from tray_manager import TrayManager
+from locales import (
+    t, set_current_language, get_current_language, SUPPORTED_LANGUAGES
+)
 
 # Clean Desktop Palette
 COLOR_BG = "#121214"            # Matte charcoal background
@@ -106,6 +109,10 @@ class AudioGuardApp:
 
         # Initialize Config
         self.config = ConfigManager()
+
+        # Initialize Localization
+        saved_lang = self.config.get("language", "en")
+        set_current_language(saved_lang)
 
         # Initialize Audio Engine
         self.audio = AudioEngine(self.config)
@@ -196,7 +203,7 @@ class AudioGuardApp:
         # Title / Brand
         self.header_title = ctk.CTkLabel(
             self.header_frame,
-            text="AudioGuard",
+            text=t("app_title"),
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=COLOR_TEXT_WHITE
         )
@@ -205,8 +212,8 @@ class AudioGuardApp:
         # View Toggle Button (⚙️ Settings / ← Dashboard)
         self.nav_btn = ctk.CTkButton(
             self.header_frame,
-            text="⚙️ Settings",
-            width=90,
+            text=t("nav_settings"),
+            width=110,
             height=28,
             corner_radius=6,
             fg_color="#2A2A30",
@@ -226,7 +233,7 @@ class AudioGuardApp:
         self.current_view = "dashboard"
         self.settings_frame.pack_forget()
         self.dashboard_frame.pack(fill="both", expand=True, padx=16, pady=(0, 14))
-        self.nav_btn.configure(text="⚙️ Settings")
+        self.nav_btn.configure(text=t("nav_settings"))
         self._update_status_banner()
         self._update_dashboard_summary()
 
@@ -234,7 +241,7 @@ class AudioGuardApp:
         self.current_view = "settings"
         self.dashboard_frame.pack_forget()
         self.settings_frame.pack(fill="both", expand=True, padx=16, pady=(0, 14))
-        self.nav_btn.configure(text="← Dashboard")
+        self.nav_btn.configure(text=t("nav_dashboard"))
 
     # -------------------------------------------------------------
     # 1. Dashboard View (Simple, Focused, Zero-Clutter)
@@ -392,11 +399,11 @@ class AudioGuardApp:
         cur_mic = self.config.get("input_device_name", "")
         if not cur_mic:
             cur_mic = self.input_device_combo.get() if hasattr(self, "input_device_combo") else "Default"
-        self.sum_mic_lbl.configure(text=f"🎤  Input: {cur_mic}")
+        self.sum_mic_lbl.configure(text=f"🎤  {t('sec_audio_device')} {cur_mic}")
 
         # Schedules summary
         if not self.scheduler.enabled:
-            self.sum_sch_lbl.configure(text="⏰  Schedule: Disabled (Manual recording only)")
+            self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {t('sum_schedules_disabled')}")
         else:
             slots = self.scheduler.slots
             if slots:
@@ -404,7 +411,7 @@ class AudioGuardApp:
                 for s in slots:
                     days = s.get("days", ["All"])
                     if "All" in days or len(days) == 7:
-                        d_str = "Daily"
+                        d_str = t("sum_daily")
                     elif len(days) == 1:
                         d_str = days[0]
                     elif set(days) == {"Mon", "Tue", "Wed", "Thu", "Fri"}:
@@ -415,13 +422,15 @@ class AudioGuardApp:
                         d_str = ",".join(days)
                     parts.append(f"{s['start']}–{s['end']} ({d_str})")
                 slots_str = ", ".join(parts)
-                self.sum_sch_lbl.configure(text=f"⏰  Schedules: {slots_str} (Auto-records on boot)")
+                self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {slots_str}")
             else:
-                self.sum_sch_lbl.configure(text="⏰  Schedule: No time slots set")
+                self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {t('sum_no_upcoming')}")
 
         # Disk
         folder = self.config.get("backup_folder", "")
-        grouping = self.config.get("folder_grouping", "monthly").capitalize()
+        grouping = self.config.get("folder_grouping", "monthly")
+        grouping_key = f"group_{grouping}"
+        grouping_display = t(grouping_key) if grouping_key in ["group_monthly", "group_daily", "group_weekly", "group_none"] else grouping.capitalize()
         free_gb = get_free_disk_space_gb(folder)
         if free_gb < 1.0:
             color = COLOR_RED
@@ -429,7 +438,7 @@ class AudioGuardApp:
             color = COLOR_AMBER
         else:
             color = COLOR_GREEN
-        self.sum_disk_lbl.configure(text=f"📁  Storage: {free_gb:.1f} GB free  ({folder} • {grouping})", text_color=color)
+        self.sum_disk_lbl.configure(text=f"📁  {t('sum_storage')} {t('sum_free', free_gb=free_gb)}  ({folder} • {grouping_display})", text_color=color)
 
     # -------------------------------------------------------------
     # 2. Settings View (Dedicated Configuration Panel)
@@ -452,17 +461,18 @@ class AudioGuardApp:
         mic_head = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         mic_head.pack(fill="x", padx=16, pady=(12, 4))
 
-        ctk.CTkLabel(
+        self.sec_mic_lbl = ctk.CTkLabel(
             mic_head,
-            text="Audio Input Device:",
+            text=t("sec_audio_device"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLOR_TEXT_WHITE
-        ).pack(side="left")
+        )
+        self.sec_mic_lbl.pack(side="left")
 
         self.rescan_btn = ctk.CTkButton(
             mic_head,
-            text="🔄 Refresh",
-            width=65,
+            text=f"🔄 {t('btn_refresh')}",
+            width=80,
             height=22,
             fg_color="#2A2A30",
             hover_color=COLOR_PANEL_BORDER,
@@ -483,18 +493,19 @@ class AudioGuardApp:
         sch_head = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         sch_head.pack(fill="x", padx=16, pady=(0, 4))
 
-        ctk.CTkLabel(
+        self.sec_sch_lbl = ctk.CTkLabel(
             sch_head,
-            text="Daily Auto-Record Schedules:",
+            text=t("sec_schedules"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLOR_TEXT_WHITE
-        ).pack(side="left")
+        )
+        self.sec_sch_lbl.pack(side="left")
 
         # Master Enable/Disable Toggle
         self.sched_enabled_var = ctk.BooleanVar(value=self.scheduler.enabled)
         self.sched_enabled_chk = ctk.CTkCheckBox(
             sch_head,
-            text="Enable Auto-Recording",
+            text=t("opt_schedule_master"),
             variable=self.sched_enabled_var,
             font=ctk.CTkFont(size=11),
             command=self.on_toggle_schedule_enabled
@@ -521,7 +532,7 @@ class AudioGuardApp:
 
         self.add_slot_btn = ctk.CTkButton(
             sch_actions,
-            text="+ Add Time Frame",
+            text=t("btn_add_slot"),
             width=120,
             height=26,
             fg_color="#2A2A30",
@@ -533,7 +544,7 @@ class AudioGuardApp:
 
         self.save_sch_btn = ctk.CTkButton(
             sch_actions,
-            text="💾 Save Schedules",
+            text=t("btn_save_schedules"),
             width=130,
             height=26,
             fg_color="#2A2A30",
@@ -544,13 +555,14 @@ class AudioGuardApp:
         self.save_sch_btn.pack(side="left")
 
         # Section 3: Backup Directory & Retention
-        ctk.CTkLabel(
+        self.sec_storage_lbl = ctk.CTkLabel(
             self.settings_scroll,
-            text="Backup Storage Folder:",
+            text=t("sec_storage"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLOR_TEXT_WHITE,
             anchor="w"
-        ).pack(fill="x", padx=16, pady=(0, 4))
+        )
+        self.sec_storage_lbl.pack(fill="x", padx=16, pady=(0, 4))
 
         f_row = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         f_row.pack(fill="x", padx=16, pady=(0, 6))
@@ -562,7 +574,7 @@ class AudioGuardApp:
 
         self.browse_btn = ctk.CTkButton(
             f_row,
-            text="Change...",
+            text=t("btn_browse"),
             width=75,
             height=28,
             fg_color="#2A2A30",
@@ -586,41 +598,37 @@ class AudioGuardApp:
         ret_row = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         ret_row.pack(fill="x", padx=16, pady=(0, 8))
 
-        ctk.CTkLabel(
+        self.sec_retention_lbl = ctk.CTkLabel(
             ret_row,
-            text="Auto-delete recordings older than:",
+            text=t("sec_retention"),
             font=ctk.CTkFont(size=11),
             text_color=COLOR_TEXT_MUTED
-        ).pack(side="left", padx=(0, 6))
+        )
+        self.sec_retention_lbl.pack(side="left", padx=(0, 6))
 
         self.retention_entry = ctk.CTkEntry(ret_row, width=40, height=24)
         self.retention_entry.insert(0, str(self.config.get("retention_days", 30)))
         self.retention_entry.pack(side="left", padx=(0, 6))
 
-        ctk.CTkLabel(
-            ret_row,
-            text="days (0 = keep forever)",
-            font=ctk.CTkFont(size=11),
-            text_color=COLOR_TEXT_MUTED
-        ).pack(side="left")
-
         # File Naming Format
         naming_head = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         naming_head.pack(fill="x", padx=16, pady=(0, 4))
 
-        ctk.CTkLabel(
+        self.sec_naming_lbl = ctk.CTkLabel(
             naming_head,
-            text="File Naming Format:",
+            text=t("sec_naming"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLOR_TEXT_WHITE
-        ).pack(side="left")
+        )
+        self.sec_naming_lbl.pack(side="left")
 
-        ctk.CTkLabel(
+        self.naming_tokens_lbl = ctk.CTkLabel(
             naming_head,
-            text="Tokens: {date}, {time}, {year}, {month}, {day}, {hour}, {min}, {mode}",
+            text=t("naming_tokens"),
             font=ctk.CTkFont(size=10),
             text_color=COLOR_TEXT_MUTED
-        ).pack(side="right")
+        )
+        self.naming_tokens_lbl.pack(side="right")
 
         naming_row = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         naming_row.pack(fill="x", padx=16, pady=(0, 4))
@@ -647,7 +655,7 @@ class AudioGuardApp:
         initial_preview = format_recording_filename(current_pat)
         self.naming_preview_lbl = ctk.CTkLabel(
             self.settings_scroll,
-            text=f"Preview: {initial_preview}",
+            text=t("naming_preview", preview=initial_preview),
             font=ctk.CTkFont(size=11),
             text_color=COLOR_GREEN,
             anchor="w"
@@ -658,7 +666,7 @@ class AudioGuardApp:
         self.auto_export_mp3_var = ctk.BooleanVar(value=self.config.get("auto_export_mp3", True))
         self.auto_export_mp3_chk = ctk.CTkCheckBox(
             self.settings_scroll,
-            text="Also create MP3 copy after recording",
+            text=t("opt_export_mp3"),
             variable=self.auto_export_mp3_var,
             font=ctk.CTkFont(size=11),
             command=self.on_auto_export_mp3_toggled
@@ -669,12 +677,13 @@ class AudioGuardApp:
         group_frame = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         group_frame.pack(fill="x", padx=16, pady=(0, 12))
 
-        ctk.CTkLabel(
+        self.sec_group_lbl = ctk.CTkLabel(
             group_frame,
-            text="Organize Files Into Subfolders:",
+            text=t("sec_folder_grouping"),
             font=ctk.CTkFont(size=11),
             text_color=COLOR_TEXT_MUTED
-        ).pack(side="left", padx=(0, 8))
+        )
+        self.sec_group_lbl.pack(side="left", padx=(0, 8))
 
         self.grouping_options = {
             "Monthly (YYYY-MM)": "monthly",
@@ -699,22 +708,50 @@ class AudioGuardApp:
         self.folder_grouping_menu.pack(side="left")
 
         # Section 4: System Options
-        ctk.CTkLabel(
+        self.sec_system_lbl = ctk.CTkLabel(
             self.settings_scroll,
-            text="System Options:",
+            text=t("sec_system"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLOR_TEXT_WHITE,
             anchor="w"
-        ).pack(fill="x", padx=16, pady=(0, 6))
+        )
+        self.sec_system_lbl.pack(fill="x", padx=16, pady=(0, 6))
 
         opts_frame = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
         opts_frame.pack(fill="x", padx=16, pady=(0, 16))
+
+        # Language Selector Row
+        lang_row = ctk.CTkFrame(opts_frame, fg_color="transparent")
+        lang_row.pack(fill="x", pady=(0, 6))
+
+        self.lang_lbl = ctk.CTkLabel(
+            lang_row,
+            text=t("opt_language"),
+            font=ctk.CTkFont(size=12),
+            text_color=COLOR_TEXT_WHITE
+        )
+        self.lang_lbl.pack(side="left", padx=(0, 8))
+
+        lang_options = list(SUPPORTED_LANGUAGES.values())
+        cur_lang_code = get_current_language()
+        cur_lang_display = SUPPORTED_LANGUAGES.get(cur_lang_code, "English")
+
+        self.lang_menu = ctk.CTkOptionMenu(
+            lang_row,
+            values=lang_options,
+            width=160,
+            height=26,
+            font=ctk.CTkFont(size=11),
+            command=self.on_language_changed
+        )
+        self.lang_menu.set(cur_lang_display)
+        self.lang_menu.pack(side="left")
 
         self.startup_var = ctk.BooleanVar(value=is_autostart_enabled())
         os_label = "Windows" if sys.platform == "win32" else "macOS" if sys.platform == "darwin" else "System"
         self.startup_chk = ctk.CTkCheckBox(
             opts_frame,
-            text=f"Launch on {os_label} startup (in background)",
+            text=f"{t('opt_autostart')} ({os_label})",
             variable=self.startup_var,
             font=ctk.CTkFont(size=12),
             command=self.on_startup_toggled
@@ -724,7 +761,7 @@ class AudioGuardApp:
         self.mono_switch_var = ctk.BooleanVar(value=self.config.get("mono_sum", True))
         self.mono_switch = ctk.CTkCheckBox(
             opts_frame,
-            text="Mono-Sum (duplicate mono input to both channels)",
+            text=t("opt_mono_sum"),
             variable=self.mono_switch_var,
             font=ctk.CTkFont(size=12),
             command=self.on_mono_switch_toggled
@@ -734,7 +771,7 @@ class AudioGuardApp:
         self.monitor_switch_var = ctk.BooleanVar(value=False)
         self.monitor_switch = ctk.CTkCheckBox(
             opts_frame,
-            text="🎧 Listen Live (headphone monitor)",
+            text=f"🎧 {t('opt_headphone')}",
             variable=self.monitor_switch_var,
             font=ctk.CTkFont(size=12),
             command=self.on_monitor_switch_toggled
@@ -747,7 +784,7 @@ class AudioGuardApp:
 
         self.open_log_btn = ctk.CTkButton(
             log_row,
-            text="📄 Open Diagnostic Log File",
+            text=t("btn_open_log"),
             width=180,
             height=28,
             fg_color="#2A2A30",
@@ -858,8 +895,8 @@ class AudioGuardApp:
 
         all_btn = ctk.CTkButton(
             days_box,
-            text="All",
-            width=28,
+            text=t("day_all"),
+            width=32 if get_current_language() == "ar" else 28,
             height=22,
             font=ctk.CTkFont(size=10, weight="bold"),
             fg_color=COLOR_GREEN if is_all_active else "#2A2A30",
@@ -869,7 +906,15 @@ class AudioGuardApp:
         )
         all_btn.pack(side="left", padx=(0, 3))
 
-        day_labels = [("Mon", "M"), ("Tue", "T"), ("Wed", "W"), ("Thu", "T"), ("Fri", "F"), ("Sat", "S"), ("Sun", "S")]
+        day_labels = [
+            ("Mon", t("day_mon")),
+            ("Tue", t("day_tue")),
+            ("Wed", t("day_wed")),
+            ("Thu", t("day_thu")),
+            ("Fri", t("day_fri")),
+            ("Sat", t("day_sat")),
+            ("Sun", t("day_sun"))
+        ]
         for k, lbl in day_labels:
             active = is_all_active or (k in normalized_days)
             var = ctk.BooleanVar(value=active)
@@ -926,10 +971,8 @@ class AudioGuardApp:
         if not new_state:
             # User wants to DISABLE
             confirm = messagebox.askyesno(
-                "Disable Auto-Recording",
-                "Are you sure you want to disable automatic scheduled recording?\n\n"
-                "AudioGuard will NOT automatically record during your configured time frames until you re-enable it.\n\n"
-                "(Manual recording will still be available at any time).",
+                t("dlg_disable_sch_title"),
+                t("dlg_disable_sch_msg"),
                 icon="warning"
             )
             if not confirm:
@@ -938,9 +981,8 @@ class AudioGuardApp:
         else:
             # User wants to ENABLE
             confirm = messagebox.askyesno(
-                "Enable Auto-Recording",
-                "Are you sure you want to enable automatic scheduled recording?\n\n"
-                "AudioGuard will automatically start and stop recording during all configured daily time frames.",
+                t("dlg_enable_sch_title"),
+                t("dlg_enable_sch_msg"),
                 icon="question"
             )
             if not confirm:
@@ -968,9 +1010,14 @@ class AudioGuardApp:
 
         success = self.scheduler.update_schedules(enabled=enabled, slots=slots)
         if success:
+            merged_count = len(self.scheduler.slots)
+            self._populate_slot_rows()
             self._update_status_banner()
             self._update_dashboard_summary()
-            messagebox.showinfo("Schedules Saved", f"Successfully saved {len(slots)} schedule time frames.")
+            if merged_count < len(slots):
+                messagebox.showinfo(t("dlg_save_title"), t("dlg_merged_slots"))
+            else:
+                messagebox.showinfo(t("dlg_save_title"), f"Successfully saved {merged_count} schedule time frames.")
         else:
             messagebox.showerror("Invalid Schedule", "Please ensure all time slots are valid 24-hour times in HH:MM format (e.g. 09:00, 14:30).")
 
@@ -1137,32 +1184,38 @@ class AudioGuardApp:
             ss = elapsed_sec % 60
             elapsed_str = f"{hh:02d}:{mm:02d}:{ss:02d}"
             filename = Path(self.audio.recording_file_path or "").name
+            size_mb = 0.0
+            try:
+                if self.audio.recording_file_path and os.path.exists(self.audio.recording_file_path):
+                    size_mb = os.path.getsize(self.audio.recording_file_path) / (1024 * 1024)
+            except Exception:
+                pass
 
             if self.scheduler.is_in_overtime:
                 overtime_min = int((time.time() - (self.scheduler.overtime_start_time or time.time())) / 60)
                 end_str = self.scheduler.active_slot["end"] if self.scheduler.active_slot else "Schedule"
                 self.status_title.configure(
-                    text=f"● RECORDING (OVERTIME +{overtime_min}m) [{elapsed_str}]",
+                    text=f"{t('status_recording')} {t('status_overtime')} [{elapsed_str}]",
                     text_color=COLOR_GREEN
                 )
                 self.status_subtitle.configure(
-                    text=f"Speech active past {end_str} • Auto-stops after 90s silence  |  {filename}"
+                    text=f"{filename} • {t('status_overtime')} (+{overtime_min}m)"
                 )
                 self.status_banner.configure(border_color=COLOR_GREEN)
             else:
                 mode_tag = "MANUAL" if self.audio.is_manual_recording else "SCHEDULED"
                 slot_info = f" ({self.scheduler.active_slot['start']}—{self.scheduler.active_slot['end']})" if self.scheduler.active_slot else ""
                 self.status_title.configure(
-                    text=f"● RECORDING ({mode_tag}{slot_info}) [{elapsed_str}]",
+                    text=f"{t('status_recording')} ({mode_tag}{slot_info}) [{elapsed_str}]",
                     text_color=COLOR_RED
                 )
                 self.status_subtitle.configure(
-                    text=f"Saving to {filename}"
+                    text=t("subtitle_recording", filename=filename, size_mb=size_mb)
                 )
                 self.status_banner.configure(border_color=COLOR_RED)
 
             self.action_btn.configure(
-                text="⏹ Stop Recording",
+                text=t("btn_stop_recording"),
                 fg_color="#7F1D1D",
                 hover_color=COLOR_RED_HOVER
             )
@@ -1174,15 +1227,15 @@ class AudioGuardApp:
             if self.scheduler.suppressed_slot:
                 slot_str = f" ({self.scheduler.suppressed_slot['start']}—{self.scheduler.suppressed_slot['end']})"
             self.status_title.configure(
-                text="⏸ SCHEDULE PAUSED FOR CURRENT WINDOW",
+                text=t("status_paused"),
                 text_color=COLOR_AMBER
             )
             self.status_subtitle.configure(
-                text=f"Stopped by user{slot_str}. Will auto-record again at next scheduled window."
+                text=f"{t('subtitle_paused')}{slot_str}"
             )
             self.status_banner.configure(border_color=COLOR_AMBER)
             self.action_btn.configure(
-                text="▶️ Resume Scheduled Recording",
+                text=t("btn_resume_schedule"),
                 fg_color=COLOR_AMBER,
                 hover_color="#D97706"
             )
@@ -1191,37 +1244,38 @@ class AudioGuardApp:
         # Standby
         if not self.scheduler.enabled:
             self.status_title.configure(
-                text="● STANDBY (MANUAL ONLY)",
+                text=t("status_standby"),
                 text_color=COLOR_AMBER
             )
+            cur_mic = self.config.get("input_device_name", "Default")
             self.status_subtitle.configure(
-                text="Daily auto-recording is disabled in Settings. Click below to start recording."
+                text=t("subtitle_standby_manual", device=cur_mic)
             )
         else:
             next_info = self.scheduler.get_next_slot()
             if next_info:
-                when = "today" if next_info["is_today"] else "tomorrow"
+                when = next_info.get("day_name", "Upcoming")
                 st = next_info["slot"]["start"]
                 et = next_info["slot"]["end"]
                 self.status_title.configure(
-                    text="● STANDBY",
+                    text=t("status_standby"),
                     text_color=COLOR_GREEN
                 )
                 self.status_subtitle.configure(
-                    text=f"Next auto-recording {when}: {st} — {et}"
+                    text=f"{t('sum_next_schedule')} {when} ({st} — {et})"
                 )
             else:
                 self.status_title.configure(
-                    text="● STANDBY (NO SLOTS)",
+                    text=t("status_standby"),
                     text_color=COLOR_AMBER
                 )
                 self.status_subtitle.configure(
-                    text="No time slots configured. Add time frames in Settings."
+                    text=t("sum_no_upcoming")
                 )
 
         self.status_banner.configure(border_color=COLOR_PANEL_BORDER)
         self.action_btn.configure(
-            text="🔴 Start Manual Recording",
+            text=t("btn_start_manual"),
             fg_color=COLOR_RED,
             hover_color=COLOR_RED_HOVER
         )
@@ -1317,6 +1371,78 @@ class AudioGuardApp:
         self.config.set("folder_grouping", mapped)
         self._update_dashboard_summary()
         logger.info("Folder grouping updated to: %s (%s)", choice, mapped)
+
+    def on_language_changed(self, choice: str):
+        rev_langs = {v: k for k, v in SUPPORTED_LANGUAGES.items()}
+        code = rev_langs.get(choice, "en")
+        set_current_language(code)
+        self.config.set("language", code)
+        logger.info("Language changed to: %s (%s)", choice, code)
+        self._apply_language()
+
+    def _apply_language(self):
+        """Refreshes all UI text labels across views to the currently active language."""
+        # Header / Brand
+        if hasattr(self, "header_title"):
+            self.header_title.configure(text=t("app_title"))
+        if hasattr(self, "nav_btn"):
+            self.nav_btn.configure(text=t("nav_settings") if self.current_view == "dashboard" else t("nav_dashboard"))
+
+        # Dashboard View
+        if hasattr(self, "meter_title_lbl"):
+            self.meter_title_lbl.configure(text=t("meter_title"))
+        self._update_status_banner()
+        self._update_dashboard_summary()
+
+        # Settings View - Section 1 (Audio Input)
+        if hasattr(self, "sec_mic_lbl"):
+            self.sec_mic_lbl.configure(text=t("sec_audio_device"))
+        if hasattr(self, "rescan_btn"):
+            self.rescan_btn.configure(text=f"🔄 {t('btn_refresh')}")
+
+        # Settings View - Section 2 (Schedules)
+        if hasattr(self, "sec_sch_lbl"):
+            self.sec_sch_lbl.configure(text=t("sec_schedules"))
+        if hasattr(self, "sched_enabled_chk"):
+            self.sched_enabled_chk.configure(text=t("opt_schedule_master"))
+        if hasattr(self, "add_slot_btn"):
+            self.add_slot_btn.configure(text=t("btn_add_slot"))
+        if hasattr(self, "save_sch_btn"):
+            self.save_sch_btn.configure(text=t("btn_save_schedules"))
+
+        # Settings View - Section 3 (Storage)
+        if hasattr(self, "sec_storage_lbl"):
+            self.sec_storage_lbl.configure(text=t("sec_storage"))
+        if hasattr(self, "browse_btn"):
+            self.browse_btn.configure(text=t("btn_browse"))
+        if hasattr(self, "sec_retention_lbl"):
+            self.sec_retention_lbl.configure(text=t("sec_retention"))
+        if hasattr(self, "sec_naming_lbl"):
+            self.sec_naming_lbl.configure(text=t("sec_naming"))
+        if hasattr(self, "naming_tokens_lbl"):
+            self.naming_tokens_lbl.configure(text=t("naming_tokens"))
+        if hasattr(self, "auto_export_mp3_chk"):
+            self.auto_export_mp3_chk.configure(text=t("opt_export_mp3"))
+        if hasattr(self, "sec_group_lbl"):
+            self.sec_group_lbl.configure(text=t("sec_folder_grouping"))
+
+        # Settings View - Section 4 (System Options)
+        if hasattr(self, "sec_system_lbl"):
+            self.sec_system_lbl.configure(text=t("sec_system"))
+        if hasattr(self, "lang_lbl"):
+            self.lang_lbl.configure(text=t("opt_language"))
+        if hasattr(self, "startup_chk"):
+            os_label = "Windows" if sys.platform == "win32" else "macOS" if sys.platform == "darwin" else "System"
+            self.startup_chk.configure(text=f"{t('opt_autostart')} ({os_label})")
+        if hasattr(self, "mono_switch"):
+            self.mono_switch.configure(text=t("opt_mono_sum"))
+        if hasattr(self, "monitor_switch"):
+            self.monitor_switch.configure(text=f"🎧 {t('opt_headphone')}")
+        if hasattr(self, "open_log_btn"):
+            self.open_log_btn.configure(text=t("btn_open_log"))
+
+        # Re-populate schedule slot rows with localized day button labels
+        self._populate_slot_rows()
 
     def _startup_cleanup(self):
         try:
