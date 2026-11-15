@@ -55,34 +55,18 @@ Traditional recording software (like Audacity or OBS) is made for studio work wi
 AudioGuard is built to run unattended: it continuously commits audio directly to storage, keeping your recording 100% safe and playable up to the exact second anything interrupts it.
 
 ```
- 🎛️ Audio Input ────► ⚡ Live Level Meter ────► 🛡️ Continuous Auto-Save ────► 🔍 Health Check ────► 🎧 Ready MP3
-  (Mic or Mixer)        (Real-Time Monitor)         (Power-Cut Proof)          (Auto-Verified)      (Lightweight Copy)
+Audio Input ────► Continuous Auto-Save ────► Raw Audio File
 ```
 
 | Core Feature | What It Does | Why It Matters |
 | :--- | :--- | :--- |
-| **⚡ Power-Cut & Shutdown Proof** | Continuously commits audio to storage as you speak | If the device loses power or abruptly shuts down, your recording is intact up to that exact second. Zero corrupted files. |
-| **🕒 Automated Multi-Slot Schedules** | Automatically records daily or on specific days of the week | Set it once. AudioGuard starts on time, catches up if the computer boots late, and auto-extends if someone is still speaking. |
-| **🔒 Accidental-Close Protection** | Minimizes to system tray and locks settings while recording | Volunteers or users cannot accidentally stop the recording or disrupt the audio input by changing settings mid-session. |
-| **🎧 Verified Instant MP3 Copy** | Creates an optimized MP3 alongside the master lossless file | Automatically runs a health check to ensure every exported file is complete and fully playable before saving. |
-| **💾 Smart Storage Management** | Cleans up older recordings safely based on your policy | Ensures your hard drive never runs out of space, with automatic safety floors to protect the system. |
-| **🎙️ Multiple Microphones** | Run separate recording instances for different mics or rooms | Record a main mixer feed on one profile and a wireless mic on another simultaneously. |
+| **⚡ Power-Cut & Shutdown Proof** | Continuously commits audio to storage as audio is received | If the device loses power or abruptly shuts down, the recording is intact up to that exact second. Zero corrupted files. |
+| **🕒 Automated Multi-Slot Schedules** | Automatically records daily or on specific days of the week | Set it once. AudioGuard starts on time, catches up if the computer boots late, and auto-extends if incoming audio continues. |
+| **🔒 Accidental-Close Protection** | Minimizes to system tray and locks settings while recording | Users cannot accidentally stop the recording or disrupt the audio input by changing settings mid-session. |
+| **🎧 Verified Instant Audio Copy** | Creates an optimized MP3 alongside the master lossless file | Automatically runs a health check to ensure every exported file is complete and fully playable before saving. |
+| **💾 Smart Storage Management** | Cleans up older recordings safely based on your policy | Ensures storage never runs out of space, with automatic safety floors to protect the system. |
+| **🎙️ Multiple Audio Inputs** | Run separate recording instances for different inputs or rooms | Record different audio sources or devices simultaneously on the same computer. |
 | **🌐 Multilingual** | Instant in-place switching between English, Arabic, and French | Interface changes instantly without needing to restart the app. |
-
----
-
-## 📊 Comparison: AudioGuard vs Traditional Tools
-
-| Capability | 🛡️ AudioGuard v1.5.4 | 🎙️ Audacity | 📹 OBS Studio | 🎛️ DAW (Reaper) |
-| :--- | :---: | :---: | :---: | :---: |
-| **Sudden Power-Loss Survival** | **100% Intact** (Auto-Saved) | ❌ Corrupt block files | ❌ Truncated container | ❌ Unsaved project |
-| **Background RAM Usage** | **~25 MB** | ~180 MB | ~350 MB | ~250 MB |
-| **Idle CPU (Minimized)** | **0.0% CPU** | 2% – 5% CPU | 4% – 10% CPU | 2% – 6% CPU |
-| **Built-in Multi-Slot Scheduler** | **Native** (Daily & Weekly) | ❌ Needs OS scripts | ❌ Needs third-party plugin | ❌ Complex action scripts |
-| **Voice Activity Overtime (+60m)** | **Automatic** | ❌ None | ❌ None | ❌ Custom scripting |
-| **Accidental Close Protection** | **System Tray Intercept** | ❌ Exits / stops recording | ⚠️ Prompts confirmation | ❌ Exits / stops recording |
-| **Multi-Tenancy / Dual Inputs** | **1-Click Frontend Profiles** | ❌ Manual multi-process | ⚠️ Profile switching | ⚠️ Complex routing |
-| **Disk Safety Floor Guard** | **Dynamic Hybrid Floor** | ❌ Crashes on disk full | ❌ Halts recording | ❌ I/O crash |
 
 ---
 
@@ -156,17 +140,7 @@ Options:
 
 ---
 
-<details>
-<summary><b>🤖 Machine & Agent Context (AI-First Manifests)</b></summary>
-
-AudioGuard adheres to **SOP-01 (AI-First Software Distribution)**:
-- [`/llms.txt`](llms.txt) — High-level entity specifications and query-intent routing.
-- [`/llms-full.txt`](llms-full.txt) — Comprehensive plain-text technical corpus including error signatures and configuration reference for LLM RAG pipelines.
-</details>
-
----
-
 ## 📜 License & Copyright
 
 Copyright (c) 2026 **MAHDI DIGITAL LLC**. All rights reserved.  
-Free to use for mosques, non-profit institutions, and educational centers. See [LICENSE](LICENSE) and [SECURITY.md](SECURITY.md) for vulnerability reporting.
+See [LICENSE](LICENSE) and [SECURITY.md](SECURITY.md) for licensing details and vulnerability reporting.
