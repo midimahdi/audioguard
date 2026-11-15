@@ -10,6 +10,7 @@ import shutil
 import logging
 from logging.handlers import RotatingFileHandler
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 
@@ -779,11 +780,78 @@ def recover_missing_mp3_exports(folder_path: str, active_recording_file=None) ->
 
 
 # -------------------------------------------------------------
-# Retention Cleaner & Disk Space
+# Retention Cleaner & High-Water Mark Ledger
 # -------------------------------------------------------------
-def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = "") -> int:
+def _get_retention_ledger_path(profile: str = "default") -> Path:
+    app_dir = get_app_dir()
+    if profile == "default":
+        return app_dir / "retention_ledger.json"
+    return app_dir / f"retention_ledger_{profile}.json"
+
+
+def record_file_retention(file_path: str, policy_days: int, profile: str = "default"):
+    """
+    Records a newly finalized backup file into the local retention ledger with its
+    original creation timestamp, active retention policy, and initial guaranteed minimum expiry.
+    """
+    if policy_days <= 0:
+        return
+    try:
+        ledger_path = _get_retention_ledger_path(profile)
+        ledger = {}
+        if ledger_path.exists():
+            try:
+                ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+            except Exception:
+                ledger = {}
+
+        p = Path(file_path)
+        key = p.name
+        now = time.time()
+        ledger[key] = {
+            "created_at": now,
+            "policy_days": policy_days,
+            "min_keep_until": now + (policy_days * 86400)
+        }
+        ledger_path.write_text(json.dumps(ledger, indent=2), encoding="utf-8")
+        logger.info("Retention Ledger: Registered %s with %d-day guarantee (keep until %s)",
+                    key, policy_days, datetime.fromtimestamp(now + policy_days * 86400).strftime("%Y-%m-%d"))
+    except Exception as e:
+        logger.error("Failed to record retention for %s: %s", file_path, e)
+
+
+def get_file_expiry_threshold(file_path: Path, current_retention_days: int, ledger: Dict[str, Any]) -> float:
+    """
+    Calculates effective expiry applying the High-Water Mark (Furthest Duration) rule:
+      effective_expiry = max(recorded_policy_expiry, file_created_at + current_retention_days * 86400)
+    If the file is not in the ledger, falls back to mtime + current_retention_days * 86400.
+    Returns the UNIX timestamp at which the file expires.
+    """
+    if current_retention_days <= 0:
+        return float("inf")  # Keep forever
+
+    key = file_path.name
+    # Also check base stem if companion file (.mp3 / .wav / .ogg) belongs to a master .flac
+    flac_key = file_path.with_suffix(".flac").name
+    entry = ledger.get(key) or ledger.get(flac_key)
+
+    if entry and "created_at" in entry and "min_keep_until" in entry:
+        created_at = float(entry["created_at"])
+        min_keep = float(entry["min_keep_until"])
+        current_keep = created_at + (current_retention_days * 86400)
+        # High-Water Mark: furthest duration wins
+        return max(min_keep, current_keep)
+    else:
+        # Legacy or untracked file: use mtime
+        mtime = file_path.stat().st_mtime
+        return mtime + (current_retention_days * 86400)
+
+
+def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = "", profile: str = "default") -> int:
     """
     Deletes backup .flac, .mp3, .wav, and .ogg files older than retention_days across all subfolders.
+    Enforces the High-Water Mark (Furthest Duration) rule via the local retention ledger:
+    files previously recorded under a longer policy are guaranteed to survive until their full duration.
     Matches standard 'Audio_Backup_*', legacy 'Mosque_Backup_*', custom prefixes,
     or any backup containing a YYYY-MM-DD timestamp pattern.
     Also cleans up any empty subfolders left behind.
@@ -799,7 +867,6 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
         logger.warning("Backup folder %s does not exist. Skipping retention cleanup.", folder_path)
         return 0
 
-    cutoff_time = time.time() - (retention_days * 86400)
     deleted_count = 0
 
     # Extract custom static prefix from pattern if available (e.g. "Mosque_Lesson_" from "Mosque_Lesson_{date}")
@@ -811,7 +878,18 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
         elif idx == -1:
             custom_prefix = pattern.strip()
 
-    logger.info("Running recursive retention cleanup on '%s' (Older than %d days)...", folder, retention_days)
+    logger.info("Running recursive retention cleanup on '%s' (Policy: %d days, High-Water Mark enabled)...", folder, retention_days)
+
+    ledger_path = _get_retention_ledger_path(profile)
+    ledger = {}
+    if ledger_path.exists():
+        try:
+            ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        except Exception:
+            ledger = {}
+
+    ledger_modified = False
+    now = time.time()
 
     import re
     try:
@@ -835,11 +913,15 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
 
             if matches:
                 try:
-                    mtime = file.stat().st_mtime
-                    if mtime < cutoff_time:
+                    expiry_time = get_file_expiry_threshold(file, retention_days, ledger)
+                    if now >= expiry_time:
                         file.unlink()
                         deleted_count += 1
-                        logger.info("Retention: Deleted old backup file: %s (age: %.1f days)", file.relative_to(folder), (time.time() - mtime) / 86400)
+                        if file.name in ledger:
+                            del ledger[file.name]
+                            ledger_modified = True
+                        logger.info("Retention: Deleted expired backup file: %s (expiry reached: %.1f days ago)",
+                                    file.relative_to(folder), (now - expiry_time) / 86400)
                 except Exception as ex:
                     logger.error("Failed to delete expired backup %s: %s", name, ex)
 
@@ -854,6 +936,12 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
                     pass
     except Exception as e:
         logger.error("Error during retention scan of %s: %s", folder, e)
+
+    if ledger_modified:
+        try:
+            ledger_path.write_text(json.dumps(ledger, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     logger.info("Retention cleanup completed. Total deleted: %d files.", deleted_count)
     return deleted_count

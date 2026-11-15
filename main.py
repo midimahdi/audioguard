@@ -275,6 +275,7 @@ class AudioGuardApp:
         self.dashboard_frame.pack_forget()
         self.settings_frame.pack(fill="both", expand=True, padx=16, pady=(0, 14))
         self.nav_btn.configure(text=t("nav_dashboard"))
+        self._update_settings_lock_state(force=True)
 
     # -------------------------------------------------------------
     # 1. Dashboard View (Simple, Focused, Zero-Clutter)
@@ -496,12 +497,29 @@ class AudioGuardApp:
         self.settings_scroll.pack(fill="both", expand=True)
         self._bind_touchpad_scroll()
 
+        # Settings Lock Banner (Displayed when active recording is underway)
+        self.settings_lock_banner = ctk.CTkFrame(
+            self.settings_scroll,
+            fg_color="#332200",
+            border_width=1,
+            border_color="#B8860B",
+            corner_radius=6
+        )
+        self.lock_banner_lbl = ctk.CTkLabel(
+            self.settings_lock_banner,
+            text=t("settings_locked_banner"),
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#FFD700",
+            wraplength=480
+        )
+        self.lock_banner_lbl.pack(padx=12, pady=8)
+
         # Section 1: Audio Input Device
-        mic_head = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
-        mic_head.pack(fill="x", padx=16, pady=(12, 4))
+        self.sec_mic_head = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
+        self.sec_mic_head.pack(fill="x", padx=16, pady=(12, 4))
 
         self.sec_mic_lbl = ctk.CTkLabel(
-            mic_head,
+            self.sec_mic_head,
             text=t("sec_audio_device"),
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=COLOR_TEXT_WHITE
@@ -509,7 +527,7 @@ class AudioGuardApp:
         self.sec_mic_lbl.pack(side="left")
 
         self.rescan_btn = ctk.CTkButton(
-            mic_head,
+            self.sec_mic_head,
             text=f"🔄 {t('btn_refresh')}",
             width=80,
             height=22,
@@ -637,7 +655,7 @@ class AudioGuardApp:
 
         # Retention Days
         ret_row = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
-        ret_row.pack(fill="x", padx=16, pady=(0, 8))
+        ret_row.pack(fill="x", padx=16, pady=(0, 2))
 
         self.sec_retention_lbl = ctk.CTkLabel(
             ret_row,
@@ -650,6 +668,16 @@ class AudioGuardApp:
         self.retention_entry = ctk.CTkEntry(ret_row, width=40, height=24)
         self.retention_entry.insert(0, str(self.config.get("retention_days", 30)))
         self.retention_entry.pack(side="left", padx=(0, 6))
+
+        self.retention_hint_lbl = ctk.CTkLabel(
+            self.settings_scroll,
+            text=t("retention_hint"),
+            font=ctk.CTkFont(size=10),
+            text_color="#8E8E93",
+            anchor="w",
+            justify="left"
+        )
+        self.retention_hint_lbl.pack(fill="x", padx=16, pady=(0, 8))
 
         # File Naming Format
         naming_head = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
@@ -902,6 +930,92 @@ class AudioGuardApp:
         self.add_profile_btn.pack(anchor="w", padx=16, pady=(0, 20))
 
         self._populate_profiles_list()
+        self._update_settings_lock_state(force=True)
+
+    def _update_settings_lock_state(self, force: bool = False):
+        """
+        Locks critical settings when audio recording is active.
+        Prevents PortAudio stream destruction, disk path mutations, and schedule race conditions.
+        """
+        is_rec = bool(getattr(self.audio, "is_recording", False))
+        if not force and getattr(self, "_last_settings_locked_state", None) == is_rec:
+            return
+        self._last_settings_locked_state = is_rec
+
+        # Show or hide settings lock banner
+        if hasattr(self, "settings_lock_banner") and hasattr(self, "sec_mic_head"):
+            if is_rec:
+                self.settings_lock_banner.pack(fill="x", padx=16, pady=(10, 8), before=self.sec_mic_head)
+            else:
+                self.settings_lock_banner.pack_forget()
+
+        # State string for UI inputs
+        state_str = "disabled" if is_rec else "normal"
+
+        # 1. Audio input device controls
+        if hasattr(self, "input_device_combo"):
+            self.input_device_combo.configure(state=state_str)
+        if hasattr(self, "rescan_btn"):
+            self.rescan_btn.configure(state=state_str)
+
+        # 2. Storage & File naming controls
+        if hasattr(self, "browse_btn"):
+            self.browse_btn.configure(state=state_str)
+        if hasattr(self, "retention_entry"):
+            self.retention_entry.configure(state=state_str)
+        if hasattr(self, "naming_entry"):
+            self.naming_entry.configure(state=state_str)
+        if hasattr(self, "save_naming_btn"):
+            self.save_naming_btn.configure(state=state_str)
+        if hasattr(self, "companion_combo"):
+            self.companion_combo.configure(state=state_str)
+        if hasattr(self, "folder_grouping_menu"):
+            self.folder_grouping_menu.configure(state=state_str)
+
+        # 3. Schedule controls
+        if hasattr(self, "sched_enabled_chk"):
+            self.sched_enabled_chk.configure(state=state_str)
+        if hasattr(self, "add_slot_btn"):
+            self.add_slot_btn.configure(state=state_str)
+        if hasattr(self, "save_sch_btn"):
+            if is_rec:
+                self.save_sch_btn.configure(state="disabled")
+            else:
+                if getattr(self, "_schedules_dirty", False):
+                    self.save_sch_btn.configure(
+                        state="normal",
+                        fg_color=COLOR_GREEN,
+                        hover_color=COLOR_GREEN_HOVER,
+                        text_color="#FFFFFF"
+                    )
+                else:
+                    self.save_sch_btn.configure(
+                        state="disabled",
+                        fg_color="#2A2A30",
+                        hover_color="#2A2A30",
+                        text_color="#8E8E93"
+                    )
+
+        # Slot row elements
+        if hasattr(self, "slot_rows"):
+            for row in self.slot_rows:
+                if "start_entry" in row:
+                    row["start_entry"].configure(state=state_str)
+                if "end_entry" in row:
+                    row["end_entry"].configure(state=state_str)
+                if "label_entry" in row:
+                    row["label_entry"].configure(state=state_str)
+                if "all_btn" in row and row["all_btn"]:
+                    row["all_btn"].configure(state=state_str)
+                if "del_btn" in row and row["del_btn"]:
+                    row["del_btn"].configure(state=state_str)
+                if "day_buttons" in row and row["day_buttons"]:
+                    for d_btn in row["day_buttons"].values():
+                        d_btn.configure(state=state_str)
+
+        # 4. Profiles controls
+        if hasattr(self, "add_profile_btn"):
+            self.add_profile_btn.configure(state=state_str)
 
     def _populate_profiles_list(self):
         """Populates the profiles container with cards for each configured profile."""
@@ -985,7 +1099,7 @@ class AudioGuardApp:
                     hover_color="#7F1D1D",
                     command=lambda p_id=pid, p_name=pname: self._on_delete_profile(p_id, p_name)
                 )
-                if running:
+                if running or self.audio.is_recording:
                     del_btn.configure(state="disabled", text_color="#555555")
                 del_btn.pack(side="left")
 
@@ -1014,6 +1128,10 @@ class AudioGuardApp:
                 messagebox.showerror("Error", f"Failed to launch profile window:\n{e}")
 
     def _on_delete_profile(self, profile_id: str, display_name: str):
+        if self.audio.is_recording:
+            messagebox.showwarning("Recording Active", "Cannot delete profiles while a recording is in progress.")
+            return
+
         if is_profile_running(profile_id):
             messagebox.showwarning("Profile Running", f"Profile '{display_name}' is currently running.\nPlease close its window before deleting it.")
             return
@@ -1029,6 +1147,9 @@ class AudioGuardApp:
 
     def on_show_add_profile_dialog(self):
         """Displays modal dialog to configure and launch a Second Audio Input profile."""
+        if self.audio.is_recording:
+            messagebox.showwarning("Recording Active", "Cannot configure profiles while a recording is in progress.")
+            return
         dlg = ctk.CTkToplevel(self.root)
         dlg.title(t("dlg_add_prof_title"))
         dlg.geometry("480x440")
@@ -1342,8 +1463,10 @@ class AudioGuardApp:
             "start_entry": st_entry,
             "end_entry": et_entry,
             "label_entry": lbl_entry,
+            "all_btn": all_btn,
             "day_vars": day_vars,
-            "day_buttons": day_buttons
+            "day_buttons": day_buttons,
+            "del_btn": None
         }
 
         del_btn = ctk.CTkButton(
@@ -1357,6 +1480,7 @@ class AudioGuardApp:
             command=lambda: self._delete_slot_row(entry_data)
         )
         del_btn.pack(side="left")
+        entry_data["del_btn"] = del_btn
 
         self.slot_rows.append(entry_data)
 
@@ -1545,6 +1669,7 @@ class AudioGuardApp:
         if res:
             logger.info("Recording started successfully (%s, slot: '%s'): %s", mode, slot_label, res)
             self._update_status_banner()
+            self._update_settings_lock_state(force=True)
             self.tray.update_recording_state(True)
         else:
             logger.error("Failed to start recording.")
@@ -1552,6 +1677,7 @@ class AudioGuardApp:
     def on_scheduler_stop_recording(self):
         self.audio.stop_recording()
         self._update_status_banner()
+        self._update_settings_lock_state(force=True)
         self.tray.update_recording_state(False)
         self.root.after(500, self._startup_cleanup)
 
@@ -1569,6 +1695,8 @@ class AudioGuardApp:
 
     def _update_status_banner(self):
         """Refreshes status banner and action button."""
+        self._update_settings_lock_state()
+
         # Low Disk Space Emergency Alert
         if self.audio.low_disk_state:
             self.status_title.configure(text="⚠️ DISK FULL — RECORDING STOPPED", text_color=COLOR_RED)
@@ -1890,13 +2018,20 @@ class AudioGuardApp:
         # Re-populate schedule slot rows with localized day button labels
         self._populate_slot_rows()
 
+        if hasattr(self, "lock_banner_lbl"):
+            self.lock_banner_lbl.configure(text=t("settings_locked_banner"))
+        if hasattr(self, "retention_hint_lbl"):
+            self.retention_hint_lbl.configure(text=t("retention_hint"))
+
+        self._update_settings_lock_state(force=True)
+
     def _startup_cleanup(self):
         try:
             retention_days = int(self.retention_entry.get().strip())
             self.config.set("retention_days", retention_days)
             folder = self.config.get("backup_folder", "")
             pattern = self.config.get("filename_pattern", "")
-            cleanup_old_backups(folder, retention_days, pattern=pattern)
+            cleanup_old_backups(folder, retention_days, pattern=pattern, profile=self.profile)
 
             # Power-Cut Recovery & Missing Companion Generator
             companion_fmt = self.config.get("companion_format")

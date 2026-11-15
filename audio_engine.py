@@ -537,7 +537,7 @@ class AudioEngine:
         if free_gb < warning_floor_gb:
             logger.warning("Low disk space before recording (%.2f GB free < %.2f GB warning floor). Running retention cleanup...", free_gb, warning_floor_gb)
             try:
-                cleanup_old_backups(str(backup_folder), retention_days, pattern=pattern)
+                cleanup_old_backups(str(backup_folder), retention_days, pattern=pattern, profile=getattr(self.config, "profile", "default"))
                 free_gb = get_free_disk_space_gb(str(backup_folder))
             except Exception as ex:
                 logger.error("Retention cleanup error: %s", ex)
@@ -614,6 +614,16 @@ class AudioEngine:
         self.recording_start_time = None
 
         logger.info("RECORDING FINISHED -> Duration: %.1fs, File: %s", elapsed, finished_path)
+        profile = getattr(self.config, "profile", "default")
+        retention_days = int(self.config.get("retention_days", 30))
+
+        # Register finished FLAC in the retention ledger
+        if finished_path:
+            try:
+                from config_manager import record_file_retention
+                record_file_retention(finished_path, retention_days, profile=profile)
+            except Exception as e:
+                logger.error("Failed to record FLAC file retention: %s", e)
         
         # Trigger background companion format conversion if enabled
         companion_fmt = self.config.get("companion_format")
@@ -621,10 +631,14 @@ class AudioEngine:
             companion_fmt = "mp3" if self.config.get("auto_export_mp3", True) else "none"
 
         if finished_path and companion_fmt != "none":
-            from config_manager import convert_flac_companion
+            from config_manager import convert_flac_companion, record_file_retention
             def _async_convert(src, fmt):
                 logger.info("Auto-exporting %s copy for %s...", fmt.upper(), Path(src).name)
-                convert_flac_companion(src, target_format=fmt)
+                success = convert_flac_companion(src, target_format=fmt)
+                if success:
+                    comp_path = Path(src).with_suffix(f".{fmt.lower()}")
+                    if comp_path.exists():
+                        record_file_retention(str(comp_path), retention_days, profile=profile)
 
             t = threading.Thread(target=_async_convert, args=(finished_path, companion_fmt), daemon=True)
             t.start()
@@ -632,10 +646,9 @@ class AudioEngine:
         # Trigger automatic retention cleanup post-recording
         try:
             from config_manager import cleanup_old_backups
-            retention_days = int(self.config.get("retention_days", 30))
             folder = self.config.get("backup_folder", "")
             pattern = self.config.get("filename_pattern", "")
-            cleanup_old_backups(folder, retention_days, pattern=pattern)
+            cleanup_old_backups(folder, retention_days, pattern=pattern, profile=profile)
         except Exception as e:
             logger.error("Failed to run post-recording retention cleanup: %s", e)
 
@@ -702,7 +715,7 @@ class AudioEngine:
                         logger.warning("Low disk space mid-recording (%.2f GB < %.2f GB warning floor). Triggering retention scan...", free_gb, warning_floor_gb)
                         try:
                             retention_days = int(self.config.get("retention_days", 30))
-                            cleanup_old_backups(backup_folder_str, retention_days)
+                            cleanup_old_backups(backup_folder_str, retention_days, profile=getattr(self.config, "profile", "default"))
                             free_gb = get_free_disk_space_gb(backup_folder_str)
                         except Exception:
                             pass
