@@ -2,6 +2,7 @@
 AudioGuard - Configuration, Persistence, Startup & Retention Manager
 """
 
+from __future__ import annotations
 import os
 import sys
 import json
@@ -10,6 +11,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import time
 from pathlib import Path
+from typing import Optional, Tuple, List, Dict, Any
 
 # Logger setup
 logger = logging.getLogger("AudioGuard")
@@ -30,10 +32,11 @@ def get_app_dir() -> Path:
     app_dir.mkdir(parents=True, exist_ok=True)
     return app_dir
 
-def setup_logging():
-    """Initializes rotating logging to app.log (capped at 2 MB with 2 backups) and stdout."""
+def setup_logging(profile: str = "default"):
+    """Initializes rotating logging to app.log (or app_<profile>.log) and stdout."""
     app_dir = get_app_dir()
-    log_file = app_dir / "app.log"
+    log_name = "app.log" if profile == "default" else f"app_{profile}.log"
+    log_file = app_dir / log_name
     
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
@@ -181,12 +184,18 @@ def format_recording_filename(pattern: str, is_manual: bool = False, dt=None) ->
     return f"{result}.flac"
 
 class ConfigManager:
-    def __init__(self):
+    def __init__(self, profile: str = "default"):
+        self.profile = profile or "default"
         self.app_dir = get_app_dir()
-        self.config_path = self.app_dir / "config.json"
+        if self.profile == "default":
+            self.config_path = self.app_dir / "config.json"
+        else:
+            self.config_path = self.app_dir / f"config_{self.profile}.json"
         self.data = dict(DEFAULT_CONFIG)
         if not self.data["backup_folder"]:
             self.data["backup_folder"] = get_default_backup_folder()
+        if self.profile != "default" and not self.config_path.exists():
+            self.data["filename_pattern"] = f"Audio_Backup_{self.profile}_{{date}}_{{time}}"
         self.load()
 
     def load(self):
@@ -363,9 +372,19 @@ def is_autostart_enabled() -> bool:
 # Single-Instance Lock
 # -------------------------------------------------------------
 class SingleInstanceLock:
-    """Ensures only one instance of AudioGuard runs at a time."""
-    def __init__(self, lock_name="Local\\AudioGuard_SingleInstance_Mutex"):
-        self.lock_name = lock_name
+    """Ensures only one instance of AudioGuard runs at a time per profile."""
+    def __init__(self, profile: str = "default", lock_name: Optional[str] = None):
+        self.profile = profile or "default"
+        if lock_name:
+            self.lock_name = lock_name
+            self.port = 54800
+        elif self.profile == "default":
+            self.lock_name = "Local\\AudioGuard_SingleInstance_Mutex"
+            self.port = 54800
+        else:
+            self.lock_name = f"Local\\AudioGuard_SingleInstance_Mutex_{self.profile}"
+            offset = sum((i + 1) * ord(c) for i, c in enumerate(self.profile)) % 40
+            self.port = 54800 + 1 + offset
         self.mutex = None
         self.sock = None
         self.acquired = False
@@ -383,7 +402,7 @@ class SingleInstanceLock:
                 self.mutex = kernel32.CreateMutexW(None, False, self.lock_name)
                 last_error = kernel32.GetLastError()
                 if last_error == ERROR_ALREADY_EXISTS:
-                    logger.warning("Another instance of AudioGuard is already running (Windows Mutex).")
+                    logger.warning("Another instance of AudioGuard [%s] is already running (Windows Mutex).", self.profile)
                     return False
                 if self.mutex:
                     self.acquired = True
@@ -391,16 +410,16 @@ class SingleInstanceLock:
             except Exception as e:
                 logger.warning("Failed to create Windows Mutex, falling back to socket lock: %s", e)
 
-        # Fallback cross-platform socket lock on 127.0.0.1:54982
+        # Fallback cross-platform socket lock on localhost
         try:
             import socket
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.bind(("127.0.0.1", 54982))
+            self.sock.bind(("127.0.0.1", self.port))
             self.sock.listen(1)
             self.acquired = True
             return True
         except (socket.error, OSError):
-            logger.warning("Another instance of AudioGuard is already running (Socket Lock :54982).")
+            logger.warning("Another instance of AudioGuard [%s] is already running (Socket Lock :%d).", self.profile, self.port)
             return False
 
     def release(self):
@@ -597,15 +616,36 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
     logger.info("Retention cleanup completed. Total deleted: %d files.", deleted_count)
     return deleted_count
 
-def get_free_disk_space_gb(path_str: str) -> float:
-    """Returns the free disk space in Gigabytes for the specified path."""
+def get_disk_capacity_gb(path_str: str) -> Tuple[float, float, float]:
+    """Returns (total_gb, used_gb, free_gb) for the specified path."""
     try:
-        p = Path(path_str)
-        # Find closest existing parent if path doesn't exist yet
+        p = Path(path_str) if path_str else Path.home()
         while not p.exists() and p != p.parent:
             p = p.parent
         usage = shutil.disk_usage(p)
-        return usage.free / (1024 ** 3)
+        total_gb = usage.total / (1024 ** 3)
+        used_gb = usage.used / (1024 ** 3)
+        free_gb = usage.free / (1024 ** 3)
+        return total_gb, used_gb, free_gb
     except Exception as e:
-        logger.error("Error reading disk usage for %s: %s", path_str, e)
-        return 0.0
+        logger.error("Error reading disk capacity for %s: %s", path_str, e)
+        return 0.0, 0.0, 0.0
+
+def get_disk_safety_floors(path_str: str) -> Tuple[float, float]:
+    """
+    Computes dynamic safety floors based on drive capacity:
+    safety_floor_gb: max(1.0, min(total_gb * 0.02, 5.0))
+    warning_floor_gb: 2.0 * safety_floor_gb
+    Returns (safety_floor_gb, warning_floor_gb).
+    """
+    total_gb, _, _ = get_disk_capacity_gb(path_str)
+    if total_gb <= 0:
+        return 1.0, 2.0
+    safety_floor = max(1.0, min(total_gb * 0.02, 5.0))
+    warning_floor = 2.0 * safety_floor
+    return safety_floor, warning_floor
+
+def get_free_disk_space_gb(path_str: str) -> float:
+    """Returns the free disk space in Gigabytes for the specified path."""
+    _, _, free_gb = get_disk_capacity_gb(path_str)
+    return free_gb

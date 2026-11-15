@@ -49,7 +49,7 @@ PLIST_FILE="dist/AudioGuard.app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :NSAppSleepDisabled bool true" "$PLIST_FILE" 2>/dev/null || \
 /usr/libexec/PlistBuddy -c "Set :NSAppSleepDisabled true" "$PLIST_FILE"
 
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString '1.0.0'" "$PLIST_FILE" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString '1.5.0'" "$PLIST_FILE" 2>/dev/null || true
 
 # 5. Ad-hoc Code Signing
 echo "[5/6] Applying ad-hoc codesign to bundle..."

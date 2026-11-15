@@ -7,6 +7,7 @@ AudioGuard - Smart Scheduler & Multi-Slot Auto-Recording Engine
 - Single-session user pause suppression (resets automatically when window passes)
 """
 
+from __future__ import annotations
 import time
 import logging
 from datetime import datetime, time as dtime, timedelta

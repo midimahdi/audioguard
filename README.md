@@ -17,20 +17,26 @@
   - **Late-Boot Catch-Up:** If the PC boots mid-window, recording starts immediately.
   - **Speech Overtime Extension:** If voice activity is still detected when the scheduled end time is reached, recording automatically extends for up to an extra 1 hour (+60 min cap) and finalizes once 90 seconds of silence occurs.
   - **Intelligent Pause Reset:** Stopping a scheduled recording suppresses auto-restart only for that active window; suppression automatically resets as soon as that slot passes.
-- **Fail-Safe Storage Guard & Folder Grouping:**  
+- **Fail-Safe Storage Guard & Dynamic Hybrid Floor:**  
+  - **Dynamic Hybrid Safety Floor:** Safety floor is calculated dynamically based on total disk capacity: $\text{floor} = \max(1.0\text{ GB}, \min(0.02 \times \text{Total Capacity}, 5.0\text{ GB}))$. Low disk warning and automatic retention cleanup are triggered at $2 \times \text{floor}$; recording is safely cut off and blocked at $1 \times \text{floor}$ to prevent OS lockups.
   - If the chosen backup path (e.g. external USB drive) is detached or inaccessible, AudioGuard automatically redirects recording to `C:\AudioBackups\` (Windows) or `~/AudioBackups/` (macOS) so audio is never dropped.
   - **Folder Organization:** Organize recordings into subfolders: `Monthly (YYYY-MM)` [Default], `Daily (YYYY-MM-DD)`, `Weekly (YYYY-Www)`, or `None (Flat)`.
   - **Recursive Retention & Recovery:** File retention cleanup and boot MP3 recovery recursively scan all subfolders and safely prune empty directories.
+- **Multi-Mic / Profile Support (`--profile <name>`):**  
+  - Run multiple simultaneous instances of AudioGuard on the same computer to record separate audio inputs or microphones independently (e.g. `AudioGuard.exe --profile mic2`).
+  - Each profile features an isolated configuration (`config_<profile>.json`), dedicated rotating log (`app_<profile>.log`), profile-scoped Named Mutex, dedicated IPC port, and distinct window and system tray titles.
 - **Customizable File Naming:**  
   Configure custom naming patterns using dynamic tokens (`{date}`, `{time}`, `{year}`, `{month}`, `{day}`, `{hour}`, `{min}`, `{sec}`, `{mode}`) with real-time live preview and character sanitization.
-- **Volunteer-Proof Dark UI, Multi-Language & System Integration:**  
+- **Volunteer-Proof Dark UI, Multi-Language & Reactive Schedules:**  
   - **Multi-Language (i18n):** Native in-place switching between **English**, **Arabic (العربية)**, and **French (Français)** across all dashboard cards, settings, buttons, and confirmation dialogs.
+  - **Reactive Save Button:** Save Schedules button remains disabled when clean, and dynamically activates (green) when any time slot, day toggle, or row is edited.
+  - **Clean Multi-Slot Dashboard:** Displays all active schedules clearly separated with bulleted items on the main dashboard.
   - Dedicated Dashboard (Status Card, Level Meter, Summary, Action Button) and separate scrollable Settings panel.
   - Background protection: Closing the window minimizes to the Windows System Tray or macOS Dock.
   - Dedicated 1-second elapsed recording clock (`[HH:MM:SS]`).
   - Zero-CPU idle when minimized or hidden (`winfo_viewable()`).
-  - Single-instance lock via Named Mutex / POSIX lock and localhost IPC (`127.0.0.1:54983`) that brings existing window to the front without error popups.
-  - 1-click **"Open Diagnostic Log File"** shortcut to open `app.log` in the system editor.
+  - Single-instance lock via Named Mutex / POSIX lock and localhost IPC that brings existing window to the front without error popups.
+  - 1-click **"Open Diagnostic Log File"** shortcut to open the active profile's log in the system editor.
   - **Self-Limiting Rotating Logs:** Diagnostic logs are capped at 2 MB with 2 backups (~6 MB hard cap total forever), ensuring disk space is never wasted.
 - **Cross-Platform Sleep Prevention:**  
   - Windows: Win32 `SetThreadExecutionState` (`ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED`).

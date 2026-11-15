@@ -8,6 +8,7 @@ AudioGuard - Robust Lossless Audio Engine
 - Device-by-Name Matching & Auto-Reconnect
 """
 
+from __future__ import annotations
 import os
 import sys
 import time
@@ -508,7 +509,7 @@ class AudioEngine:
             return self.recording_file_path
 
         from config_manager import (
-            get_free_disk_space_gb, cleanup_old_backups,
+            get_free_disk_space_gb, get_disk_safety_floors, cleanup_old_backups,
             format_recording_filename, get_default_backup_folder,
             get_recording_subfolder
         )
@@ -530,19 +531,20 @@ class AudioEngine:
         folder_grouping = self.config.get("folder_grouping", "monthly")
         retention_days = int(self.config.get("retention_days", 30))
 
-        # Low-Disk Space Pre-Flight Check
+        # Low-Disk Space Pre-Flight Check with dynamic safety floors
+        safety_floor_gb, warning_floor_gb = get_disk_safety_floors(str(backup_folder))
         free_gb = get_free_disk_space_gb(str(backup_folder))
-        if free_gb < 1.0:
-            logger.warning("Low disk space before recording (%.2f GB free). Running retention cleanup...", free_gb)
+        if free_gb < warning_floor_gb:
+            logger.warning("Low disk space before recording (%.2f GB free < %.2f GB warning floor). Running retention cleanup...", free_gb, warning_floor_gb)
             try:
                 cleanup_old_backups(str(backup_folder), retention_days, pattern=pattern)
                 free_gb = get_free_disk_space_gb(str(backup_folder))
             except Exception as ex:
                 logger.error("Retention cleanup error: %s", ex)
 
-        if free_gb < 0.5:
+        if free_gb < safety_floor_gb:
             self.low_disk_state = True
-            self.low_disk_message = f"Disk Space Critical ({free_gb * 1024:.0f} MB free). Recording blocked."
+            self.low_disk_message = f"Disk Space Critical ({free_gb:.2f} GB free < {safety_floor_gb:.2f} GB safety floor). Recording blocked."
             logger.error("CANNOT START RECORDING: %s", self.low_disk_message)
             return None
 
@@ -649,7 +651,7 @@ class AudioEngine:
         backup_folder_str = str(Path(file_path).parent)
         
         try:
-            from config_manager import get_free_disk_space_gb, cleanup_old_backups
+            from config_manager import get_free_disk_space_gb, get_disk_safety_floors, cleanup_old_backups
             
             raw_file = open(file_path, "wb")
             sf_file = sf.SoundFile(
@@ -690,19 +692,20 @@ class AudioEngine:
                 # Periodic disk health check every 30 seconds during active recording
                 if now - last_disk_check_time >= 30.0:
                     last_disk_check_time = now
+                    safety_floor_gb, warning_floor_gb = get_disk_safety_floors(backup_folder_str)
                     free_gb = get_free_disk_space_gb(backup_folder_str)
-                    if free_gb < 1.0:
-                        logger.warning("Low disk space mid-recording (%.2f GB). Triggering retention scan...", free_gb)
+                    if free_gb < warning_floor_gb:
+                        logger.warning("Low disk space mid-recording (%.2f GB < %.2f GB warning floor). Triggering retention scan...", free_gb, warning_floor_gb)
                         try:
                             retention_days = int(self.config.get("retention_days", 30))
                             cleanup_old_backups(backup_folder_str, retention_days)
                             free_gb = get_free_disk_space_gb(backup_folder_str)
                         except Exception:
                             pass
-                    if free_gb < 0.5:
-                        logger.critical("EMERGENCY: Disk space dropped below 500 MB (%.2f GB). Finalizing recording cleanly.", free_gb)
+                    if free_gb < safety_floor_gb:
+                        logger.critical("EMERGENCY: Disk space reached safety floor (%.2f GB free < %.2f GB floor). Finalizing recording cleanly.", free_gb, safety_floor_gb)
                         self.low_disk_state = True
-                        self.low_disk_message = f"Recording stopped automatically: Low disk space (< 500 MB)."
+                        self.low_disk_message = f"Recording stopped automatically: Free space reached safety floor ({safety_floor_gb:.2f} GB)."
                         break
 
             # Drain any remaining frames left in the queue before exit

@@ -95,10 +95,12 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "opt_mono_sum": "Mono-Sum (duplicate mono input to both channels)",
         "opt_export_mp3": "Also create MP3 copy after recording",
         "opt_headphone": "Headphone Monitor (Zero Latency)",
+        "opt_profile": "Active Profile:",
         "btn_open_log": "📄 Open Diagnostic Log File",
 
         # Dialogs & Prompts
         "dlg_save_title": "Schedules Saved",
+        "dlg_saved_count": "Successfully saved {count} schedule time slots.",
         "dlg_stop_title": "Stop Recording",
         "dlg_stop_msg": "Are you sure you want to stop the current recording session?",
         "dlg_disable_sch_title": "Disable Automated Schedules",
@@ -193,10 +195,12 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "opt_mono_sum": "دمج القناتين (تكرار الصوت الأحادي في كلتا السماعتين)",
         "opt_export_mp3": "إنشاء نسخة MP3 تلقائياً بعد التسجيل",
         "opt_headphone": "سماعة المراقبة (بدون تأخير)",
+        "opt_profile": "الملف التعريفي:",
         "btn_open_log": "📄 فتح ملف السجل التشخيصي",
 
         # Dialogs & Prompts
         "dlg_save_title": "تم حفظ الجداول",
+        "dlg_saved_count": "تم حفظ {count} مواعيد جدول بنجاح.",
         "dlg_stop_title": "إيقاف التسجيل",
         "dlg_stop_msg": "هل أنت متأكد من رغبتك في إيقاف جلسة التسجيل الحالية؟",
         "dlg_disable_sch_title": "تعطيل الجداول الآلية",
@@ -291,10 +295,12 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "opt_mono_sum": "Mono-Somme (dupliquer le signal mono sur les deux canaux)",
         "opt_export_mp3": "Créer également une copie MP3 après l'enregistrement",
         "opt_headphone": "Moniteur casque (sans latence)",
+        "opt_profile": "Profil actif :",
         "btn_open_log": "📄 Ouvrir le fichier journal de diagnostic",
 
         # Dialogs & Prompts
         "dlg_save_title": "Horaires enregistrés",
+        "dlg_saved_count": "Enregistré {count} créneaux horaires avec succès.",
         "dlg_stop_title": "Arrêter l'enregistrement",
         "dlg_stop_msg": "Êtes-vous sûr de vouloir arrêter la session d'enregistrement en cours ?",
         "dlg_disable_sch_title": "Désactiver les horaires automatiques",

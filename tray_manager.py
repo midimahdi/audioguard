@@ -6,6 +6,7 @@ AudioGuard - System Tray Manager
 - Right-click menu with Dashboard, Start/Stop toggle, and Admin Quit
 """
 
+from __future__ import annotations
 import sys
 import logging
 import threading
@@ -25,10 +26,12 @@ class TrayManager:
     def __init__(self,
                  on_show_window: Callable[[], None],
                  on_toggle_record: Callable[[], None],
-                 on_admin_quit: Callable[[], None]):
+                 on_admin_quit: Callable[[], None],
+                 app_title: str = "AudioGuard"):
         self.on_show_window = on_show_window
         self.on_toggle_record = on_toggle_record
         self.on_admin_quit = on_admin_quit
+        self.app_title = app_title
         
         self.icon: Optional[pystray.Icon] = None
         self.is_recording = False
@@ -96,9 +99,9 @@ class TrayManager:
                     pystray.MenuItem("Exit (Admin Quit)", self._on_menu_quit)
                 )
                 self.icon = pystray.Icon(
-                    name="AudioGuard",
+                    name=self.app_title,
                     icon=self._icon_standby,
-                    title="AudioGuard (Standby)",
+                    title=f"{self.app_title} (Standby)",
                     menu=menu
                 )
                 self.icon.run()
@@ -107,7 +110,7 @@ class TrayManager:
 
         self._tray_thread = threading.Thread(target=run, daemon=True)
         self._tray_thread.start()
-        logger.info("System Tray initialized.")
+        logger.info("System Tray initialized (%s).", self.app_title)
 
     def _get_toggle_text(self, item) -> str:
         return "⏹ Stop Recording Now" if self.is_recording else "🔴 Start Manual Recording"
@@ -130,9 +133,9 @@ class TrayManager:
         try:
             self.icon.icon = self._icon_recording if recording else self._icon_standby
             if tooltip_text:
-                self.icon.title = f"AudioGuard: {tooltip_text}"
+                self.icon.title = f"{self.app_title}: {tooltip_text}"
             else:
-                self.icon.title = "AudioGuard: RECORDING" if recording else "AudioGuard: STANDBY"
+                self.icon.title = f"{self.app_title}: RECORDING" if recording else f"{self.app_title}: STANDBY"
         except Exception as e:
             logger.debug("Error updating tray icon: %s", e)
 

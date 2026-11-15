@@ -14,8 +14,10 @@ High-Performance, Zero-Lag Desktop Utility (customtkinter)
 from __future__ import annotations
 import os
 import sys
+import re
 import time
 import socket
+import argparse
 import threading
 import subprocess
 from datetime import datetime, timedelta
@@ -29,7 +31,8 @@ import customtkinter as ctk
 from config_manager import (
     ConfigManager, setup_logging, logger,
     is_autostart_enabled, set_autostart,
-    SingleInstanceLock, get_free_disk_space_gb, cleanup_old_backups
+    SingleInstanceLock, get_free_disk_space_gb, get_disk_safety_floors,
+    cleanup_old_backups
 )
 from audio_engine import AudioEngine
 from scheduler import SchedulerEngine
@@ -51,20 +54,29 @@ COLOR_RED = "#DC2626"           # Recording / Stop
 COLOR_RED_HOVER = "#B91C1C"
 COLOR_BLUE = "#3B82F6"          # Clean blue accent
 
-IPC_PORT = 54983
+IPC_BASE_PORT = 54900
 
 
-def signal_existing_instance() -> bool:
-    """Sends a wake-up signal to an already running AudioGuard instance."""
+def get_ipc_port(profile: str = "default") -> int:
+    """Returns the dedicated IPC port for the given profile."""
+    if profile == "default":
+        return IPC_BASE_PORT
+    offset = sum((i + 1) * ord(c) for i, c in enumerate(profile)) % 40
+    return IPC_BASE_PORT + 1 + offset
+
+
+def signal_existing_instance(profile: str = "default") -> bool:
+    """Sends a wake-up signal to an already running AudioGuard instance for the specified profile."""
+    port = get_ipc_port(profile)
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1.5)
-        s.connect(("127.0.0.1", IPC_PORT))
+        s.connect(("127.0.0.1", port))
         s.sendall(b"SHOW\n")
         s.close()
         return True
     except Exception as e:
-        logger.debug("Could not signal existing instance: %s", e)
+        logger.debug("Could not signal existing instance [%s] on port %d: %s", profile, port, e)
         return False
 
 
@@ -92,9 +104,13 @@ ctk.set_default_color_theme("blue")
 
 
 class AudioGuardApp:
-    def __init__(self, root: ctk.CTk, start_minimized: bool = False):
+    def __init__(self, root: ctk.CTk, start_minimized: bool = False, profile: str = "default"):
         self.root = root
-        self.root.title("AudioGuard")
+        self.profile = profile or "default"
+        self._schedules_dirty = False
+
+        app_title = "AudioGuard" if self.profile == "default" else f"AudioGuard [{self.profile}]"
+        self.root.title(app_title)
         self.root.geometry("560x620")
         self.root.minsize(500, 500)
         self.root.configure(fg_color=COLOR_BG)
@@ -105,10 +121,10 @@ class AudioGuardApp:
 
         if start_minimized:
             self.root.withdraw()
-            logger.info("Application initialized minimized to System Tray.")
+            logger.info("Application initialized minimized to System Tray (%s).", self.profile)
 
         # Initialize Config
-        self.config = ConfigManager()
+        self.config = ConfigManager(profile=self.profile)
 
         # Initialize Localization
         saved_lang = self.config.get("language", "en")
@@ -129,7 +145,8 @@ class AudioGuardApp:
         self.tray = TrayManager(
             on_show_window=self.show_window_from_tray,
             on_toggle_record=self.toggle_manual_recording,
-            on_admin_quit=self.admin_quit
+            on_admin_quit=self.admin_quit,
+            app_title=app_title
         )
 
         # Build UI
@@ -169,21 +186,22 @@ class AudioGuardApp:
 
     def _start_ipc_server(self):
         """Listens on localhost for wake-up commands when user opens shortcut."""
+        port = get_ipc_port(self.profile)
         def server_loop():
             try:
                 srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                srv.bind(("127.0.0.1", IPC_PORT))
+                srv.bind(("127.0.0.1", port))
                 srv.listen(2)
                 while True:
                     conn, _ = srv.accept()
                     data = conn.recv(64)
                     conn.close()
                     if b"SHOW" in data:
-                        logger.info("Received wake-up signal from secondary instance. Restoring window...")
+                        logger.info("Received wake-up signal from secondary instance [%s]. Restoring window...", self.profile)
                         self.root.after(0, self.show_window_from_tray)
             except Exception as e:
-                logger.debug("IPC server loop stopped: %s", e)
+                logger.debug("IPC server loop [%s] stopped: %s", self.profile, e)
 
         t = threading.Thread(target=server_loop, daemon=True)
         t.start()
@@ -201,9 +219,10 @@ class AudioGuardApp:
         self.header_frame.pack(fill="x", padx=16, pady=(12, 6))
 
         # Title / Brand
+        header_text = t("app_title") if self.profile == "default" else f"{t('app_title')} [{self.profile}]"
         self.header_title = ctk.CTkLabel(
             self.header_frame,
-            text=t("app_title"),
+            text=header_text,
             font=ctk.CTkFont(size=16, weight="bold"),
             text_color=COLOR_TEXT_WHITE
         )
@@ -403,7 +422,7 @@ class AudioGuardApp:
 
         # Schedules summary
         if not self.scheduler.enabled:
-            self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {t('sum_schedules_disabled')}")
+            self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {t('sum_schedules_disabled')}", justify="left")
         else:
             slots = self.scheduler.slots
             if slots:
@@ -421,10 +440,13 @@ class AudioGuardApp:
                     else:
                         d_str = ",".join(days)
                     parts.append(f"{s['start']}–{s['end']} ({d_str})")
-                slots_str = ", ".join(parts)
-                self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {slots_str}")
+                if len(parts) == 1:
+                    self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {parts[0]}", justify="left")
+                else:
+                    bullets = "\n".join([f"    • {p}" for p in parts])
+                    self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')}\n{bullets}", justify="left")
             else:
-                self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {t('sum_no_upcoming')}")
+                self.sum_sch_lbl.configure(text=f"⏰  {t('sum_schedule')} {t('sum_no_upcoming')}", justify="left")
 
         # Disk
         folder = self.config.get("backup_folder", "")
@@ -432,9 +454,10 @@ class AudioGuardApp:
         grouping_key = f"group_{grouping}"
         grouping_display = t(grouping_key) if grouping_key in ["group_monthly", "group_daily", "group_weekly", "group_none"] else grouping.capitalize()
         free_gb = get_free_disk_space_gb(folder)
-        if free_gb < 1.0:
+        safety_floor_gb, warning_floor_gb = get_disk_safety_floors(folder)
+        if free_gb < safety_floor_gb:
             color = COLOR_RED
-        elif free_gb < 5.0:
+        elif free_gb < warning_floor_gb:
             color = COLOR_AMBER
         else:
             color = COLOR_GREEN
@@ -547,8 +570,10 @@ class AudioGuardApp:
             text=t("btn_save_schedules"),
             width=130,
             height=26,
+            state="disabled",
             fg_color="#2A2A30",
-            hover_color=COLOR_PANEL_BORDER,
+            hover_color="#2A2A30",
+            text_color="#8E8E93",
             font=ctk.CTkFont(size=11, weight="bold"),
             command=self.on_save_schedules_clicked
         )
@@ -794,6 +819,17 @@ class AudioGuardApp:
         )
         self.open_log_btn.pack(side="left")
 
+        # Profile Info Row
+        prof_display = self.profile if self.profile != "default" else "Default"
+        self.profile_info_lbl = ctk.CTkLabel(
+            opts_frame,
+            text=f"🏷️  {t('opt_profile')} {prof_display}  (--profile <name>)",
+            font=ctk.CTkFont(size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w"
+        )
+        self.profile_info_lbl.pack(fill="x", pady=(6, 2))
+
     def _bind_touchpad_scroll(self):
         """
         Binds modern Tk 9 <TouchpadScroll> events (TIP 684) so macOS and Windows
@@ -825,6 +861,28 @@ class AudioGuardApp:
     # -------------------------------------------------------------
     # Multi-Slot Schedule Rows UI Helpers (with Day-of-Week Toggles)
     # -------------------------------------------------------------
+    def _mark_schedules_dirty(self):
+        """Activates the Save Schedules button when any changes are made."""
+        self._schedules_dirty = True
+        if hasattr(self, "save_sch_btn"):
+            self.save_sch_btn.configure(
+                state="normal",
+                fg_color=COLOR_GREEN,
+                hover_color=COLOR_GREEN_HOVER,
+                text_color="#FFFFFF"
+            )
+
+    def _mark_schedules_clean(self):
+        """Disables the Save Schedules button when there are no unsaved changes."""
+        self._schedules_dirty = False
+        if hasattr(self, "save_sch_btn"):
+            self.save_sch_btn.configure(
+                state="disabled",
+                fg_color="#2A2A30",
+                hover_color="#2A2A30",
+                text_color="#8E8E93"
+            )
+
     def _populate_slot_rows(self):
         """Populates the frame with slot rows from scheduler.slots."""
         for item in self.slot_rows:
@@ -841,6 +899,7 @@ class AudioGuardApp:
                 s.get("end", "21:00"),
                 s.get("days", ["All"])
             )
+        self._mark_schedules_clean()
 
     def _create_slot_row(self, start_val: str, end_val: str, days_val: Optional[List[str]] = None):
         row = ctk.CTkFrame(self.slots_frame, fg_color="transparent")
@@ -850,11 +909,13 @@ class AudioGuardApp:
         st_entry = ctk.CTkEntry(row, width=54, height=24, font=ctk.CTkFont(size=11))
         st_entry.insert(0, start_val)
         st_entry.pack(side="left", padx=(0, 4))
+        st_entry.bind("<KeyRelease>", lambda e: self._mark_schedules_dirty())
 
         ctk.CTkLabel(row, text="to", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 3))
         et_entry = ctk.CTkEntry(row, width=54, height=24, font=ctk.CTkFont(size=11))
         et_entry.insert(0, end_val)
         et_entry.pack(side="left", padx=(0, 8))
+        et_entry.bind("<KeyRelease>", lambda e: self._mark_schedules_dirty())
 
         # Days of Week container
         days_box = ctk.CTkFrame(row, fg_color="transparent")
@@ -881,6 +942,7 @@ class AudioGuardApp:
                 text_color="#FFFFFF" if new_state else "#8E8E93"
             )
             _update_all_btn()
+            self._mark_schedules_dirty()
 
         def _on_all_clicked():
             current_all = all(day_vars[k].get() for k in all_days_keys)
@@ -892,6 +954,7 @@ class AudioGuardApp:
                     text_color="#FFFFFF" if target else "#8E8E93"
                 )
             _update_all_btn()
+            self._mark_schedules_dirty()
 
         all_btn = ctk.CTkButton(
             days_box,
@@ -958,6 +1021,7 @@ class AudioGuardApp:
 
     def on_add_slot_clicked(self):
         self._create_slot_row("12:00", "14:00", ["All"])
+        self._mark_schedules_dirty()
 
     def _delete_slot_row(self, row_dict):
         if len(self.slot_rows) <= 1:
@@ -965,6 +1029,7 @@ class AudioGuardApp:
             return
         row_dict["frame"].destroy()
         self.slot_rows.remove(row_dict)
+        self._mark_schedules_dirty()
 
     def on_toggle_schedule_enabled(self):
         new_state = self.sched_enabled_var.get()
@@ -1014,10 +1079,11 @@ class AudioGuardApp:
             self._populate_slot_rows()
             self._update_status_banner()
             self._update_dashboard_summary()
+            self._mark_schedules_clean()
             if merged_count < len(slots):
                 messagebox.showinfo(t("dlg_save_title"), t("dlg_merged_slots"))
             else:
-                messagebox.showinfo(t("dlg_save_title"), f"Successfully saved {merged_count} schedule time frames.")
+                messagebox.showinfo(t("dlg_save_title"), t("dlg_saved_count", count=merged_count))
         else:
             messagebox.showerror("Invalid Schedule", "Please ensure all time slots are valid 24-hour times in HH:MM format (e.g. 09:00, 14:30).")
 
@@ -1305,9 +1371,10 @@ class AudioGuardApp:
                 subprocess.run(["xdg-open", folder])
 
     def on_open_log_file(self):
-        """Opens app.log in the default system text editor (e.g. Notepad)."""
+        """Opens diagnostic log file in the default system text editor (e.g. Notepad)."""
         from config_manager import get_app_dir
-        log_file = get_app_dir() / "app.log"
+        log_name = "app.log" if self.profile == "default" else f"app_{self.profile}.log"
+        log_file = get_app_dir() / log_name
         if not log_file.exists():
             log_file.touch()
 
@@ -1384,7 +1451,13 @@ class AudioGuardApp:
         """Refreshes all UI text labels across views to the currently active language."""
         # Header / Brand
         if hasattr(self, "header_title"):
-            self.header_title.configure(text=t("app_title"))
+            title_text = t("app_title") if self.profile == "default" else f"{t('app_title')} [{self.profile}]"
+            self.header_title.configure(text=title_text)
+        if self.profile == "default":
+            self.root.title(t("app_title"))
+        else:
+            self.root.title(f"{t('app_title')} [{self.profile}]")
+
         if hasattr(self, "nav_btn"):
             self.nav_btn.configure(text=t("nav_settings") if self.current_view == "dashboard" else t("nav_dashboard"))
 
@@ -1408,7 +1481,13 @@ class AudioGuardApp:
         if hasattr(self, "add_slot_btn"):
             self.add_slot_btn.configure(text=t("btn_add_slot"))
         if hasattr(self, "save_sch_btn"):
-            self.save_sch_btn.configure(text=t("btn_save_schedules"))
+            self.save_sch_btn.configure(
+                text=t("btn_save_schedules"),
+                state="normal" if self._schedules_dirty else "disabled",
+                fg_color=COLOR_GREEN if self._schedules_dirty else "#2A2A30",
+                hover_color=COLOR_GREEN_HOVER if self._schedules_dirty else "#2A2A30",
+                text_color="#FFFFFF" if self._schedules_dirty else "#8E8E93"
+            )
 
         # Settings View - Section 3 (Storage)
         if hasattr(self, "sec_storage_lbl"):
@@ -1440,6 +1519,9 @@ class AudioGuardApp:
             self.monitor_switch.configure(text=f"🎧 {t('opt_headphone')}")
         if hasattr(self, "open_log_btn"):
             self.open_log_btn.configure(text=t("btn_open_log"))
+        if hasattr(self, "profile_info_lbl"):
+            prof_display = self.profile if self.profile != "default" else "Default"
+            self.profile_info_lbl.configure(text=f"🏷️  {t('opt_profile')} {prof_display}  (--profile <name>)")
 
         # Re-populate schedule slot rows with localized day button labels
         self._populate_slot_rows()
@@ -1513,25 +1595,35 @@ class AudioGuardApp:
 
 
 def main():
-    setup_logging()
+    parser = argparse.ArgumentParser(description="AudioGuard - Bulletproof Background Audio Backup")
+    parser.add_argument("--profile", "-p", type=str, default="default", help="Configuration profile name for multi-instance recording")
+    parser.add_argument("--minimized", "-m", action="store_true", help="Start minimized to system tray")
+    args, _ = parser.parse_known_args()
+
+    raw_profile = (args.profile or "default").strip()
+    profile = re.sub(r'[^a-zA-Z0-9_\-]', '', raw_profile)
+    if not profile:
+        profile = "default"
+
+    setup_logging(profile=profile)
     logger.info("=" * 60)
-    logger.info("Starting AudioGuard...")
+    logger.info("Starting AudioGuard [Profile: %s]...", profile)
     logger.info("=" * 60)
 
-    start_minimized = ("--minimized" in sys.argv) or ("-m" in sys.argv)
+    start_minimized = args.minimized
 
-    lock = SingleInstanceLock()
+    lock = SingleInstanceLock(profile=profile)
     if not lock.acquire():
-        logger.info("AudioGuard is already running. Signaling existing instance to show window...")
-        signal_existing_instance()
+        logger.info("AudioGuard [%s] is already running. Signaling existing instance to show window...", profile)
+        signal_existing_instance(profile=profile)
         sys.exit(0)
 
     try:
         root = ctk.CTk()
-        app = AudioGuardApp(root, start_minimized=start_minimized)
+        app = AudioGuardApp(root, start_minimized=start_minimized, profile=profile)
         root.mainloop()
     except Exception as e:
-        logger.critical("Unhandled top-level crash: %s", e, exc_info=True)
+        logger.critical("Unhandled top-level crash in profile [%s]: %s", profile, e, exc_info=True)
     finally:
         lock.release()
 
