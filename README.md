@@ -2,13 +2,12 @@
 
 # 🛡️ AudioGuard
 
-**Bulletproof, crash-resistant lossless audio backup appliance for Windows, macOS & Linux.**  
-*Designed for mosques, lecture halls, and live venues to survive sudden power cuts without file corruption.*
+**Automatic, reliable audio backup for Windows, macOS & Linux.**  
+*Records in perfect quality and protects against sudden power cuts, device shutdowns, or accidental app closes.*
 
 [![Latest Release](https://img.shields.io/github/v/release/midimahdi/audioguard?color=10B981&label=Release)](https://github.com/midimahdi/audioguard/releases/latest)
 [![Platforms](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-3B82F6)](https://github.com/midimahdi/audioguard/releases/latest)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/midimahdi/audioguard/build.yml?branch=main&label=CI%2FCD)](https://github.com/midimahdi/audioguard/actions)
-[![Audio Format](https://img.shields.io/badge/Audio-24--bit%2048kHz%20FLAC%20%2B%20MP3-8B5CF6)](https://github.com/midimahdi/audioguard)
 [![License](https://img.shields.io/badge/License-Proprietary-gray)](LICENSE)
 
 </div>
@@ -51,24 +50,24 @@ Choose your operating system to start downloading immediately:
 
 ## 🎯 Why AudioGuard?
 
-Traditional recording software (Audacity, OBS, DAWs) is designed for studio sessions with human operators. When used in unattended venues or mosques, they fail when power cuts, require manual saving, and crash when disks fill up. 
+Traditional recording software (like Audacity or OBS) is made for studio work with someone watching the screen. If power cuts, someone trips on a plug, or the computer shuts down, the file corrupts and the whole recording is lost.
 
-AudioGuard is designed from scratch as an **unattended, volunteer-proof recording appliance**:
+AudioGuard is built to run unattended: it continuously commits audio directly to storage, keeping your recording 100% safe and playable up to the exact second anything interrupts it.
 
 ```
- 🎛️ Mixer Audio In ────► ⚡ Always-On DSP ────► 🛡️ 24-bit FLAC (1s fsync) ────► 🔍 3-Step Verification ────► 🎧 Verified MP3
-   (Line-In / USB)          (Mono-Sum / Meter)      (Power-Cut Immune)              (Duration & Integrity)         (Lightweight Copy)
+ 🎛️ Audio Input ────► ⚡ Live Level Meter ────► 🛡️ Continuous Auto-Save ────► 🔍 Health Check ────► 🎧 Ready MP3
+  (Mic or Mixer)        (Real-Time Monitor)         (Power-Cut Proof)          (Auto-Verified)      (Lightweight Copy)
 ```
 
-| Feature | What It Does | Why It Matters |
+| Core Feature | What It Does | Why It Matters |
 | :--- | :--- | :--- |
-| **⚡ Power-Cut Immune** | Flushes and syncs to disk every 1.0 second (`os.fsync`) | If the PC loses power mid-sentence, the recording is 100% playable up to that exact second. No corrupt files. |
-| **🕒 Smart Multi-Slot Scheduler** | Automates daily/weekly recording schedules with day toggles | Set it once. AudioGuard starts recording on time, catches up if the PC boots late, and auto-extends if speech continues past the end time. |
-| **🔒 Volunteer-Proof UI** | Closing the window minimizes to tray; settings lock while recording | Volunteers cannot accidentally stop recording or disconnect the audio stream by changing settings mid-capture. |
-| **📁 Verified Dual-Format Export** | Automatically creates an MP3 copy alongside master FLAC | A 3-step verification gate validates duration and audio decodability before replacing files, guaranteeing zero corrupted MP3s. |
-| **💾 High-Water Mark Retention** | Automatic cleaner enforces guaranteed file lifespans | Existing recordings maintain their original retention policy even if you reduce retention settings later. |
-| **🎙️ Multi-Input Profiles** | Run multiple simultaneous instances from the GUI | Record a main mixer feed on one profile and a secondary wireless mic on another (`--profile second_input`). |
-| **🌐 Multilingual** | Instant in-place language switching | Full support for **English**, **Arabic (العربية)**, and **French (Français)** without restarting the app. |
+| **⚡ Power-Cut & Shutdown Proof** | Continuously commits audio to storage as you speak | If the device loses power or abruptly shuts down, your recording is intact up to that exact second. Zero corrupted files. |
+| **🕒 Automated Multi-Slot Schedules** | Automatically records daily or on specific days of the week | Set it once. AudioGuard starts on time, catches up if the computer boots late, and auto-extends if someone is still speaking. |
+| **🔒 Accidental-Close Protection** | Minimizes to system tray and locks settings while recording | Volunteers or users cannot accidentally stop the recording or disrupt the audio input by changing settings mid-session. |
+| **🎧 Verified Instant MP3 Copy** | Creates an optimized MP3 alongside the master lossless file | Automatically runs a health check to ensure every exported file is complete and fully playable before saving. |
+| **💾 Smart Storage Management** | Cleans up older recordings safely based on your policy | Ensures your hard drive never runs out of space, with automatic safety floors to protect the system. |
+| **🎙️ Multiple Microphones** | Run separate recording instances for different mics or rooms | Record a main mixer feed on one profile and a wireless mic on another simultaneously. |
+| **🌐 Multilingual** | Instant in-place switching between English, Arabic, and French | Interface changes instantly without needing to restart the app. |
 
 ---
 
@@ -76,7 +75,7 @@ AudioGuard is designed from scratch as an **unattended, volunteer-proof recordin
 
 | Capability | 🛡️ AudioGuard v1.5.4 | 🎙️ Audacity | 📹 OBS Studio | 🎛️ DAW (Reaper) |
 | :--- | :---: | :---: | :---: | :---: |
-| **Sudden Power-Loss Survival** | **100% Loss-Free** (1s fsync) | ❌ Corrupt block files | ❌ Truncated container | ❌ Unsaved project |
+| **Sudden Power-Loss Survival** | **100% Intact** (Auto-Saved) | ❌ Corrupt block files | ❌ Truncated container | ❌ Unsaved project |
 | **Background RAM Usage** | **~25 MB** | ~180 MB | ~350 MB | ~250 MB |
 | **Idle CPU (Minimized)** | **0.0% CPU** | 2% – 5% CPU | 4% – 10% CPU | 2% – 6% CPU |
 | **Built-in Multi-Slot Scheduler** | **Native** (Daily & Weekly) | ❌ Needs OS scripts | ❌ Needs third-party plugin | ❌ Complex action scripts |
