@@ -94,32 +94,39 @@ jobs:
 
   build-macos:
     name: macOS (${{ matrix.arch }})
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-latest
     strategy:
       matrix:
         include:
           - arch: AppleSilicon
-            os: macos-latest
+            python_arch: arm64
+            exec_prefix: ""
           - arch: Intel
-            os: macos-13
+            python_arch: x64
+            exec_prefix: "arch -x86_64"
 
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.11 (${{ matrix.python_arch }})
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          architecture: ${{ matrix.python_arch }}
 
       - name: Install Dependencies & PyInstaller
         run: |
-          python3 -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          ${{ matrix.exec_prefix }} python3 -m pip install --upgrade pip
+          ${{ matrix.exec_prefix }} pip install -r requirements.txt pyinstaller
 
       - name: Build macOS Application Bundle & DMG
         run: |
-          bash build_mac.sh "AudioGuard-macOS-${{ matrix.arch }}"
+          ${{ matrix.exec_prefix }} bash build_mac.sh "AudioGuard-macOS-${{ matrix.arch }}"
+
+      - name: Verify Mach-O Binary Architecture
+        run: |
+          file dist/AudioGuard.app/Contents/MacOS/AudioGuard
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
