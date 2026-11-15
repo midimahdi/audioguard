@@ -28,7 +28,8 @@ if errorlevel 1 (
 )
 
 echo [4/4] Bundling standalone Windows executable with PyInstaller...
-pyinstaller --noconfirm --onedir --windowed ^
+pyinstaller --noconfirm --onedir --windowed --noupx ^
+    --version-file "version_info.txt" ^
     --name "AudioGuard" ^
     --collect-all "customtkinter" ^
     --collect-all "sounddevice" ^

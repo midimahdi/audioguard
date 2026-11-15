@@ -46,7 +46,8 @@ jobs:
         shell: pwsh
         run: |
           # 1. Build Onedir Distribution Bundle
-          pyinstaller --noconfirm --onedir --windowed `
+          pyinstaller --noconfirm --onedir --windowed --noupx `
+            --version-file "version_info.txt" `
             --name "AudioGuard" `
             --collect-all "customtkinter" `
             --collect-all "sounddevice" `
@@ -56,7 +57,8 @@ jobs:
             main.py
 
           # 2. Build Portable Single-File Executable
-          pyinstaller --noconfirm --onefile --windowed `
+          pyinstaller --noconfirm --onefile --windowed --noupx `
+            --version-file "version_info.txt" `
             --name "AudioGuard-Portable-${{ matrix.arch }}" `
             --collect-all "customtkinter" `
             --collect-all "sounddevice" `
