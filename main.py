@@ -1746,24 +1746,91 @@ class AudioGuardApp:
                 pass
             self._empty_slots_lbl = None
 
-        row = ctk.CTkFrame(self.slots_frame, fg_color="transparent")
-        row.pack(fill="x", pady=3, padx=4)
+        # 2-Tier Schedule Slot Card
+        card = ctk.CTkFrame(
+            self.slots_frame,
+            fg_color="#18181C",
+            corner_radius=6,
+            border_width=1,
+            border_color="#2A2A30"
+        )
+        card.pack(fill="x", pady=4, padx=4)
 
-        ctk.CTkLabel(row, text="From", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 3))
-        st_entry = ctk.CTkEntry(row, width=54, height=24, font=ctk.CTkFont(size=11))
+        # ---------------------------------------------------------
+        # Tier 1 (Top): Label Input + Delete Button
+        # ---------------------------------------------------------
+        top_row = ctk.CTkFrame(card, fg_color="transparent")
+        top_row.pack(fill="x", padx=8, pady=(6, 4))
+
+        ctk.CTkLabel(
+            top_row,
+            text="🏷️",
+            font=ctk.CTkFont(size=12)
+        ).pack(side="left", padx=(0, 4))
+
+        lbl_entry = ctk.CTkEntry(
+            top_row,
+            placeholder_text=t("slot_label_placeholder"),
+            height=26,
+            font=ctk.CTkFont(size=11)
+        )
+        if label_val:
+            lbl_entry.insert(0, label_val)
+        lbl_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        lbl_entry.bind("<KeyRelease>", lambda e: self._mark_schedules_dirty())
+
+        entry_data = {
+            "frame": card,
+            "start_entry": None,
+            "end_entry": None,
+            "label_entry": lbl_entry,
+            "all_btn": None,
+            "day_vars": None,
+            "day_buttons": None,
+            "del_btn": None
+        }
+
+        del_btn = ctk.CTkButton(
+            top_row,
+            text="✕",
+            width=26,
+            height=24,
+            fg_color="#2A2A30",
+            hover_color="#7F1D1D",
+            font=ctk.CTkFont(size=11),
+            command=lambda: self._delete_slot_row(entry_data)
+        )
+        del_btn.pack(side="right")
+        entry_data["del_btn"] = del_btn
+
+        # ---------------------------------------------------------
+        # Tier 2 (Bottom): Time Window (From/to) + Day Toggles
+        # ---------------------------------------------------------
+        bot_row = ctk.CTkFrame(card, fg_color="transparent")
+        bot_row.pack(fill="x", padx=8, pady=(0, 6))
+
+        # Time window container
+        time_box = ctk.CTkFrame(bot_row, fg_color="transparent")
+        time_box.pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(time_box, text=t("lbl_from"), font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 3))
+        st_entry = ctk.CTkEntry(time_box, width=54, height=24, font=ctk.CTkFont(size=11))
         st_entry.insert(0, start_val)
         st_entry.pack(side="left", padx=(0, 4))
         st_entry.bind("<KeyRelease>", lambda e: self._mark_schedules_dirty())
 
-        ctk.CTkLabel(row, text="to", font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 3))
-        et_entry = ctk.CTkEntry(row, width=54, height=24, font=ctk.CTkFont(size=11))
+        ctk.CTkLabel(time_box, text=t("lbl_to"), font=ctk.CTkFont(size=11), text_color=COLOR_TEXT_MUTED).pack(side="left", padx=(0, 3))
+        et_entry = ctk.CTkEntry(time_box, width=54, height=24, font=ctk.CTkFont(size=11))
         et_entry.insert(0, end_val)
-        et_entry.pack(side="left", padx=(0, 6))
+        et_entry.pack(side="left")
         et_entry.bind("<KeyRelease>", lambda e: self._mark_schedules_dirty())
 
+        entry_data["start_entry"] = st_entry
+        entry_data["end_entry"] = et_entry
+
         # Days of Week container
-        days_box = ctk.CTkFrame(row, fg_color="transparent")
-        days_box.pack(side="left", padx=(0, 6))
+        days_box = ctk.CTkFrame(bot_row, fg_color="transparent")
+        days_box.pack(side="left")
 
         day_vars = {}
         day_buttons = {}
@@ -1841,42 +1908,9 @@ class AudioGuardApp:
             btn.pack(side="left", padx=1)
             day_buttons[k] = btn
 
-        # Slot Label Entry (e.g. Friday Prayer)
-        lbl_entry = ctk.CTkEntry(
-            row,
-            placeholder_text=t("slot_label_placeholder"),
-            width=120,
-            height=24,
-            font=ctk.CTkFont(size=11)
-        )
-        if label_val:
-            lbl_entry.insert(0, label_val)
-        lbl_entry.pack(side="left", padx=(0, 6))
-        lbl_entry.bind("<KeyRelease>", lambda e: self._mark_schedules_dirty())
-
-        entry_data = {
-            "frame": row,
-            "start_entry": st_entry,
-            "end_entry": et_entry,
-            "label_entry": lbl_entry,
-            "all_btn": all_btn,
-            "day_vars": day_vars,
-            "day_buttons": day_buttons,
-            "del_btn": None
-        }
-
-        del_btn = ctk.CTkButton(
-            row,
-            text="✕",
-            width=24,
-            height=22,
-            fg_color="#2A2A30",
-            hover_color="#7F1D1D",
-            font=ctk.CTkFont(size=11),
-            command=lambda: self._delete_slot_row(entry_data)
-        )
-        del_btn.pack(side="left")
-        entry_data["del_btn"] = del_btn
+        entry_data["all_btn"] = all_btn
+        entry_data["day_vars"] = day_vars
+        entry_data["day_buttons"] = day_buttons
 
         self.slot_rows.append(entry_data)
 
