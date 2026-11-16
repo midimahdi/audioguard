@@ -9,7 +9,7 @@
 
 [Setup]
 AppName=AudioGuard
-AppVersion=1.5.5
+AppVersion=1.6.0
 AppPublisher=MAHDI DIGITAL LLC
 AppPublisherURL=https://github.com/midimahdi/audioguard
 AppSupportURL=https://github.com/midimahdi/audioguard

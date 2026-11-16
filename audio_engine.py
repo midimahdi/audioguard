@@ -61,12 +61,29 @@ class AudioEngine:
         self.left_clipped = False
         self.right_clipped = False
         
+        # Secondary Audio Stream State (Track 2 - Desktop Loopback / Second Mic)
+        self.secondary_input_stream: Optional[sd.InputStream] = None
+        self.current_secondary_device_id: Optional[int] = None
+        self.is_secondary_stream_active: bool = False
+        self.secondary_device_error_state: bool = False
+        self.secondary_device_error_message: str = ""
+
+        # Secondary Metering State (Thread-safe)
+        self.sec_left_peak_db: float = -60.0
+        self.sec_right_peak_db: float = -60.0
+        self.sec_left_rms_db: float = -60.0
+        self.sec_right_rms_db: float = -60.0
+        self.sec_left_clipped: bool = False
+        self.sec_right_clipped: bool = False
+
         # Recording state
         self.is_recording = False
         self.recording_start_time: Optional[float] = None
         self.recording_file_path: Optional[str] = None
+        self.recording_secondary_file_path: Optional[str] = None
         self.is_manual_recording = False
         self._record_queue: queue.Queue = queue.Queue(maxsize=200)
+        self._secondary_record_queue: queue.Queue = queue.Queue(maxsize=200)
         self._writer_thread: Optional[threading.Thread] = None
         self._stop_writer_event = threading.Event()
         
@@ -171,6 +188,27 @@ class AudioEngine:
         outputs = deduplicate(is_input=False)
         return inputs, outputs
 
+    @staticmethod
+    def get_secondary_audio_devices(source_type: str = "desktop") -> List[Dict[str, Any]]:
+        """
+        Enumerates devices available for Track 2.
+        When source_type == 'desktop', prioritizes loopback / stereo mix / virtual cable devices.
+        When source_type == 'input', provides all hardware audio input devices.
+        """
+        inputs, _ = AudioEngine.get_audio_devices()
+        if not inputs:
+            return []
+
+        loopback_keywords = (
+            "stereo mix", "wave out", "what u hear", "loopback", "cable",
+            "virtual", "voicemeeter", "wavelink", "blackhole", "monitor"
+        )
+        if source_type == "desktop":
+            loopbacks = [d for d in inputs if any(k in d["name"].lower() for k in loopback_keywords)]
+            others = [d for d in inputs if not any(k in d["name"].lower() for k in loopback_keywords)]
+            return loopbacks + others
+        return inputs
+
     def find_device_by_name(self, name_substr: str, is_input: bool = True, hostapi_hint: str = "") -> Optional[int]:
         """
         Finds a device index matching substring and optional host API (e.g. WASAPI).
@@ -217,10 +255,13 @@ class AudioEngine:
         Safely pauses and restores the background stream if not recording.
         """
         was_active = self.is_stream_active and not self.is_recording
+        was_active_sec = self.is_secondary_stream_active and not self.is_recording
         if was_active:
             self.stop_input_stream()
             if self.monitor_stream:
                 self.stop_monitor_stream()
+        if was_active_sec:
+            self.stop_secondary_stream()
 
         try:
             sd._terminate()
@@ -235,6 +276,8 @@ class AudioEngine:
             self.start_input_stream()
             if self.config.get("monitoring_enabled", False):
                 self.start_monitor_stream()
+        if was_active_sec or self.config.get("secondary_track_enabled", False):
+            self.start_secondary_stream()
 
         return inputs, outputs
 
@@ -337,6 +380,76 @@ class AudioEngine:
                 logger.debug("Error stopping monitor stream: %s", e)
             self.monitor_stream = None
 
+    def start_secondary_stream(self) -> bool:
+        """Starts or restarts the secondary input stream if enabled."""
+        self.stop_secondary_stream()
+        if not self.config.get("secondary_track_enabled", False):
+            return False
+
+        saved_name = self.config.get("secondary_device_name", "")
+        saved_hostapi = self.config.get("secondary_host_api", "")
+        source_type = self.config.get("secondary_source_type", "desktop")
+
+        dev_id = None
+        if saved_name:
+            dev_id = self.find_device_by_name(saved_name, is_input=True, hostapi_hint=saved_hostapi)
+
+        if dev_id is None:
+            sec_devices = self.get_secondary_audio_devices(source_type=source_type)
+            primary_id = self.current_input_device_id
+            candidates = [d for d in sec_devices if d["id"] != primary_id]
+            if candidates:
+                dev_id = candidates[0]["id"]
+            elif sec_devices:
+                dev_id = sec_devices[0]["id"]
+
+        if dev_id is None:
+            self.secondary_device_error_state = True
+            self.secondary_device_error_message = "No secondary audio input device available."
+            logger.warning(self.secondary_device_error_message)
+            return False
+
+        try:
+            dev_info = sd.query_devices(dev_id)
+            input_channels = min(2, dev_info["max_input_channels"])
+            if input_channels < 1:
+                raise ValueError("Selected secondary device has 0 input channels.")
+
+            self.current_secondary_device_id = dev_id
+            self.secondary_input_stream = sd.InputStream(
+                device=dev_id,
+                channels=input_channels,
+                samplerate=SAMPLE_RATE,
+                blocksize=BLOCK_SIZE,
+                dtype=DTYPE,
+                callback=self._secondary_audio_input_callback
+            )
+            self.secondary_input_stream.start()
+            self.is_secondary_stream_active = True
+            self.secondary_device_error_state = False
+            self.secondary_device_error_message = ""
+            logger.info("Secondary Stream started on device #%d: '%s' (HostAPI: %s)",
+                        dev_id, dev_info["name"], dev_info.get("hostapi", "Unknown"))
+            return True
+        except Exception as e:
+            self.secondary_device_error_state = True
+            self.secondary_device_error_message = f"Secondary Audio Input Error: {str(e)}"
+            logger.error("Failed to start secondary audio input stream on device #%s: %s", dev_id, e)
+            self.secondary_input_stream = None
+            self.is_secondary_stream_active = False
+            return False
+
+    def stop_secondary_stream(self):
+        """Stops the secondary input stream cleanly."""
+        if self.secondary_input_stream:
+            try:
+                self.secondary_input_stream.stop()
+                self.secondary_input_stream.close()
+            except Exception as e:
+                logger.debug("Error stopping secondary input stream: %s", e)
+            self.secondary_input_stream = None
+        self.is_secondary_stream_active = False
+
     def set_monitoring(self, enabled: bool):
         """Toggles the headphone monitor stream safely."""
         self.monitoring_enabled = enabled
@@ -427,10 +540,56 @@ class AudioEngine:
 
         # --- Route to Recording Queue ---
         if self.is_recording:
+            t_now = time.perf_counter()
             try:
-                self._record_queue.put_nowait(buffer)
+                self._record_queue.put_nowait((buffer, t_now))
             except queue.Full:
                 logger.error("Recording queue full! Audio frame dropped.")
+
+    def _secondary_audio_input_callback(self, indata: np.ndarray, frames: int, time_info, status):
+        """
+        Called by PortAudio for every 4096-sample buffer on the secondary audio track.
+        Executes level metering and routes to secondary recording queue.
+        """
+        if status:
+            logger.debug("PortAudio secondary input callback status: %s", status)
+
+        t_now = time.perf_counter()
+
+        # Ensure float32 stereo buffer shape (frames, 2)
+        if indata.shape[1] == 1:
+            buffer = np.repeat(indata, 2, axis=1)
+        else:
+            buffer = indata.copy()
+
+        # Live dBFS Peak & RMS Level Metering
+        l_peak = np.max(np.abs(buffer[:, 0]))
+        r_peak = np.max(np.abs(buffer[:, 1]))
+        l_rms = np.sqrt(np.mean(buffer[:, 0] ** 2))
+        r_rms = np.sqrt(np.mean(buffer[:, 1] ** 2))
+
+        l_peak_db = 20.0 * math.log10(max(float(l_peak), 1e-3))
+        r_peak_db = 20.0 * math.log10(max(float(r_peak), 1e-3))
+        l_rms_db = 20.0 * math.log10(max(float(l_rms), 1e-3))
+        r_rms_db = 20.0 * math.log10(max(float(r_rms), 1e-3))
+
+        with self._levels_lock:
+            self.sec_left_peak_db = max(-60.0, min(0.0, l_peak_db))
+            self.sec_right_peak_db = max(-60.0, min(0.0, r_peak_db))
+            self.sec_left_rms_db = max(-60.0, min(0.0, l_rms_db))
+            self.sec_right_rms_db = max(-60.0, min(0.0, r_rms_db))
+
+            if l_peak >= CLIP_THRESHOLD:
+                self.sec_left_clipped = True
+            if r_peak >= CLIP_THRESHOLD:
+                self.sec_right_clipped = True
+
+        # Route to Secondary Recording Queue
+        if self.is_recording:
+            try:
+                self._secondary_record_queue.put_nowait((buffer, t_now))
+            except queue.Full:
+                logger.error("Secondary recording queue full! Audio frame dropped.")
 
     def _audio_output_callback(self, outdata: np.ndarray, frames: int, time_info, status):
         """Called by PortAudio to output audio to headphones."""
@@ -460,6 +619,24 @@ class AudioEngine:
         with self._levels_lock:
             self.left_clipped = False
             self.right_clipped = False
+
+    def get_secondary_levels(self) -> Tuple[float, float, float, float, bool, bool]:
+        """Returns (sec_l_peak_db, sec_r_peak_db, sec_l_rms_db, sec_r_rms_db, sec_l_clipped, sec_r_clipped)."""
+        with self._levels_lock:
+            return (
+                self.sec_left_peak_db,
+                self.sec_right_peak_db,
+                self.sec_left_rms_db,
+                self.sec_right_rms_db,
+                self.sec_left_clipped,
+                self.sec_right_clipped
+            )
+
+    def reset_secondary_clip_indicators(self):
+        """Resets secondary persistent CLIP flags."""
+        with self._levels_lock:
+            self.sec_left_clipped = False
+            self.sec_right_clipped = False
 
     def is_voice_active(self, within_seconds: float = 60.0) -> bool:
         """
@@ -621,14 +798,55 @@ class AudioEngine:
 
         file_path = str(target_path)
 
-        # Clear recording queue
+        is_dual = bool(self.config.get("secondary_track_enabled", False))
+        multitrack_mode = self.config.get("multitrack_mode", "separate")
+
+        # Clear recording queues
         while not self._record_queue.empty():
             try:
                 self._record_queue.get_nowait()
             except Exception:
                 break
+        while not self._secondary_record_queue.empty():
+            try:
+                self._secondary_record_queue.get_nowait()
+            except Exception:
+                break
+
+        if is_dual:
+            # Ensure secondary stream is running
+            if not self.is_secondary_stream_active:
+                self.start_secondary_stream()
+
+            stem = candidate_name[:-5] if candidate_name.lower().endswith(".flac") else candidate_name
+            if multitrack_mode == "single":
+                # Single 4-channel multitrack file
+                target_path = target_dir / f"{stem}_multitrack.flac"
+                if target_path.exists():
+                    counter = 1
+                    while (target_dir / f"{stem}_{counter}_multitrack.flac").exists():
+                        counter += 1
+                    target_path = target_dir / f"{stem}_{counter}_multitrack.flac"
+                file_path = str(target_path)
+                secondary_file_path = None
+            else:
+                # Separate files (_track1 & _track2)
+                target_path_t1 = target_dir / f"{stem}_track1.flac"
+                target_path_t2 = target_dir / f"{stem}_track2.flac"
+                if target_path_t1.exists() or target_path_t2.exists():
+                    counter = 1
+                    while (target_dir / f"{stem}_{counter}_track1.flac").exists() or (target_dir / f"{stem}_{counter}_track2.flac").exists():
+                        counter += 1
+                    target_path_t1 = target_dir / f"{stem}_{counter}_track1.flac"
+                    target_path_t2 = target_dir / f"{stem}_{counter}_track2.flac"
+                file_path = str(target_path_t1)
+                secondary_file_path = str(target_path_t2)
+        else:
+            file_path = str(target_path)
+            secondary_file_path = None
 
         self.recording_file_path = file_path
+        self.recording_secondary_file_path = secondary_file_path
         self.is_manual_recording = manual
         self.recording_start_time = time.time()
         self._stop_writer_event.clear()
@@ -636,18 +854,22 @@ class AudioEngine:
         # Start dedicated FLAC writer thread
         self._writer_thread = threading.Thread(
             target=self._flac_writer_worker,
-            args=(file_path,),
+            args=(file_path, secondary_file_path, multitrack_mode, is_dual),
             daemon=True
         )
         self._writer_thread.start()
 
         self.is_recording = True
         self._set_sleep_prevention(True)
-        logger.info("RECORDING STARTED -> File: %s (Manual: %s)", file_path, manual)
+        if is_dual:
+            logger.info("RECORDING STARTED (Multi-Track: %s) -> File: %s %s (Manual: %s)",
+                        multitrack_mode, file_path, f"& {secondary_file_path}" if secondary_file_path else "", manual)
+        else:
+            logger.info("RECORDING STARTED -> File: %s (Manual: %s)", file_path, manual)
         return file_path
 
     def stop_recording(self) -> Optional[str]:
-        """Stops the active recording session and cleanly finalizes the FLAC file."""
+        """Stops the active recording session and cleanly finalizes the FLAC file(s)."""
         if not self.is_recording:
             return None
 
@@ -661,38 +883,43 @@ class AudioEngine:
 
         self._set_sleep_prevention(False)
         finished_path = self.recording_file_path
+        finished_secondary_path = self.recording_secondary_file_path
         elapsed = time.time() - (self.recording_start_time or time.time())
         self.recording_file_path = None
+        self.recording_secondary_file_path = None
         self.recording_start_time = None
 
-        logger.info("RECORDING FINISHED -> Duration: %.1fs, File: %s", elapsed, finished_path)
+        logger.info("RECORDING FINISHED -> Duration: %.1fs, File: %s %s",
+                    elapsed, finished_path, f"& {finished_secondary_path}" if finished_secondary_path else "")
         profile = getattr(self.config, "profile", "default")
         retention_days = int(self.config.get("retention_days", 30))
 
-        # Register finished FLAC in the retention ledger
-        if finished_path:
+        # Register finished FLAC(s) in the retention ledger
+        paths_to_register = [p for p in (finished_path, finished_secondary_path) if p]
+        for p in paths_to_register:
             try:
                 from config_manager import record_file_retention
-                record_file_retention(finished_path, retention_days, profile=profile)
+                record_file_retention(p, retention_days, profile=profile)
             except Exception as e:
                 logger.error("Failed to record FLAC file retention: %s", e)
-        
+
         # Trigger background companion format conversion if enabled
         companion_fmt = self.config.get("companion_format")
         if not companion_fmt:
             companion_fmt = "mp3" if self.config.get("auto_export_mp3", True) else "none"
 
-        if finished_path and companion_fmt != "none":
+        if companion_fmt != "none" and paths_to_register:
             from config_manager import convert_flac_companion, record_file_retention
-            def _async_convert(src, fmt):
-                logger.info("Auto-exporting %s copy for %s...", fmt.upper(), Path(src).name)
-                success = convert_flac_companion(src, target_format=fmt)
-                if success:
-                    comp_path = Path(src).with_suffix(f".{fmt.lower()}")
-                    if comp_path.exists():
-                        record_file_retention(str(comp_path), retention_days, profile=profile)
+            def _async_convert(src_list, fmt):
+                for src in src_list:
+                    logger.info("Auto-exporting %s copy for %s...", fmt.upper(), Path(src).name)
+                    success = convert_flac_companion(src, target_format=fmt)
+                    if success:
+                        comp_path = Path(src).with_suffix(f".{fmt.lower()}")
+                        if comp_path.exists():
+                            record_file_retention(str(comp_path), retention_days, profile=profile)
 
-            t = threading.Thread(target=_async_convert, args=(finished_path, companion_fmt), daemon=True)
+            t = threading.Thread(target=_async_convert, args=(paths_to_register, companion_fmt), daemon=True)
             t.start()
 
         # Trigger automatic retention cleanup post-recording
@@ -706,91 +933,319 @@ class AudioEngine:
 
         return finished_path
 
-    def _flac_writer_worker(self, file_path: str):
+    def _flac_writer_worker(
+        self,
+        file_path: str,
+        secondary_file_path: Optional[str] = None,
+        multitrack_mode: str = "separate",
+        is_dual_track: bool = False
+    ):
         """
         Dedicated FLAC disk writer thread.
         CRITICAL POWER-LOSS SAFETY:
         Writes 48kHz 24-bit FLAC blocks and executes sf_file.flush()
         followed by os.fsync() every 1.0 second.
         Monitors free disk space every 30s to prevent ENOSPC crashes.
+
+        When is_dual_track is True:
+        Employs the Zero-Drift Phase-Locked Resynchronizer:
+        - Microsecond initial head alignment via arrival timestamps.
+        - 1-Second block alignment via continuous np.interp sample-count locking.
+        - Mode A: Parallel synchronized writes to *_track1.flac and *_track2.flac.
+        - Mode B: Interleaved 4-channel PCM_24 FLAC (*_multitrack.flac).
         """
-        logger.info("FLAC Writer thread started for '%s'", file_path)
+        logger.info("FLAC Writer thread started (dual=%s, mode=%s) for '%s'",
+                    is_dual_track, multitrack_mode, file_path)
         sf_file = None
         raw_file = None
+        sf_file_t2 = None
+        raw_file_t2 = None
         backup_folder_str = str(Path(file_path).parent)
-        
+
         try:
             from config_manager import get_free_disk_space_gb, get_disk_safety_floors, cleanup_old_backups
-            
-            raw_file = open(file_path, "wb")
-            sf_file = sf.SoundFile(
-                raw_file,
-                mode="w",
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                format="FLAC",
-                subtype="PCM_24"
-            )
-            
-            last_flush_time = time.time()
-            last_disk_check_time = time.time()
-            blocks_since_flush = 0
 
-            while not self._stop_writer_event.is_set():
-                try:
-                    block = self._record_queue.get(timeout=0.25)
-                except queue.Empty:
-                    block = None
+            if not is_dual_track:
+                # Standard Single-Track Writer
+                raw_file = open(file_path, "wb")
+                sf_file = sf.SoundFile(
+                    raw_file,
+                    mode="w",
+                    samplerate=SAMPLE_RATE,
+                    channels=CHANNELS,
+                    format="FLAC",
+                    subtype="PCM_24"
+                )
 
-                if block is not None:
-                    sf_file.write(block)
-                    blocks_since_flush += 1
+                last_flush_time = time.time()
+                last_disk_check_time = time.time()
+                blocks_since_flush = 0
 
-                now = time.time()
-                # Continuous flush & fsync every 1.0s or ~12 blocks
-                if (now - last_flush_time >= 1.0) or (blocks_since_flush >= 12):
-                    sf_file.flush()
+                while not self._stop_writer_event.is_set():
                     try:
-                        raw_file.flush()
-                        os.fsync(raw_file.fileno())
-                    except Exception as fsync_err:
-                        logger.debug("fsync warning: %s", fsync_err)
-                    last_flush_time = now
-                    blocks_since_flush = 0
+                        item = self._record_queue.get(timeout=0.25)
+                    except queue.Empty:
+                        item = None
 
-                # Periodic disk health check every 30 seconds during active recording
-                if now - last_disk_check_time >= 30.0:
-                    last_disk_check_time = now
-                    safety_floor_gb, warning_floor_gb = get_disk_safety_floors(backup_folder_str)
-                    free_gb = get_free_disk_space_gb(backup_folder_str)
-                    if free_gb < warning_floor_gb:
-                        logger.warning("Low disk space mid-recording (%.2f GB < %.2f GB warning floor). Triggering retention scan...", free_gb, warning_floor_gb)
+                    if item is not None:
+                        block, _ = item if isinstance(item, tuple) else (item, 0.0)
+                        sf_file.write(block)
+                        blocks_since_flush += 1
+
+                    now = time.time()
+                    if (now - last_flush_time >= 1.0) or (blocks_since_flush >= 12):
+                        sf_file.flush()
                         try:
-                            retention_days = int(self.config.get("retention_days", 30))
-                            cleanup_old_backups(backup_folder_str, retention_days, profile=getattr(self.config, "profile", "default"))
-                            free_gb = get_free_disk_space_gb(backup_folder_str)
-                        except Exception:
-                            pass
-                    if free_gb < safety_floor_gb:
-                        logger.critical("EMERGENCY: Disk space reached safety floor (%.2f GB free < %.2f GB floor). Finalizing recording cleanly.", free_gb, safety_floor_gb)
-                        self.low_disk_state = True
-                        self.low_disk_message = f"Recording stopped automatically: Free space reached safety floor ({safety_floor_gb:.2f} GB)."
+                            raw_file.flush()
+                            os.fsync(raw_file.fileno())
+                        except Exception as fsync_err:
+                            logger.debug("fsync warning: %s", fsync_err)
+                        last_flush_time = now
+                        blocks_since_flush = 0
+
+                    if now - last_disk_check_time >= 30.0:
+                        last_disk_check_time = now
+                        safety_floor_gb, warning_floor_gb = get_disk_safety_floors(backup_folder_str)
+                        free_gb = get_free_disk_space_gb(backup_folder_str)
+                        if free_gb < warning_floor_gb:
+                            try:
+                                retention_days = int(self.config.get("retention_days", 30))
+                                cleanup_old_backups(backup_folder_str, retention_days, profile=getattr(self.config, "profile", "default"))
+                                free_gb = get_free_disk_space_gb(backup_folder_str)
+                            except Exception:
+                                pass
+                        if free_gb < safety_floor_gb:
+                            logger.critical("EMERGENCY: Disk space reached safety floor. Finalizing recording cleanly.")
+                            self.low_disk_state = True
+                            self.low_disk_message = f"Recording stopped automatically: Free space reached safety floor ({safety_floor_gb:.2f} GB)."
+                            break
+
+                # Drain remaining
+                while not self._record_queue.empty():
+                    try:
+                        item = self._record_queue.get_nowait()
+                        block, _ = item if isinstance(item, tuple) else (item, 0.0)
+                        sf_file.write(block)
+                    except queue.Empty:
                         break
 
-            # Drain any remaining frames left in the queue before exit
-            while not self._record_queue.empty():
+                sf_file.flush()
                 try:
-                    block = self._record_queue.get_nowait()
-                    sf_file.write(block)
-                except queue.Empty:
-                    break
+                    raw_file.flush()
+                    os.fsync(raw_file.fileno())
+                except Exception:
+                    pass
 
-            sf_file.flush()
-            try:
-                raw_file.flush()
-                os.fsync(raw_file.fileno())
-            except Exception:
-                pass
+            else:
+                # Zero-Drift Dual-Track Writer (Mode A or Mode B)
+                if multitrack_mode == "single":
+                    raw_file = open(file_path, "wb")
+                    sf_file = sf.SoundFile(
+                        raw_file,
+                        mode="w",
+                        samplerate=SAMPLE_RATE,
+                        channels=4,
+                        format="FLAC",
+                        subtype="PCM_24"
+                    )
+                else:
+                    raw_file = open(file_path, "wb")
+                    sf_file = sf.SoundFile(
+                        raw_file,
+                        mode="w",
+                        samplerate=SAMPLE_RATE,
+                        channels=CHANNELS,
+                        format="FLAC",
+                        subtype="PCM_24"
+                    )
+                    if secondary_file_path:
+                        raw_file_t2 = open(secondary_file_path, "wb")
+                        sf_file_t2 = sf.SoundFile(
+                            raw_file_t2,
+                            mode="w",
+                            samplerate=SAMPLE_RATE,
+                            channels=CHANNELS,
+                            format="FLAC",
+                            subtype="PCM_24"
+                        )
+
+                # Microsecond Initial Head Alignment
+                b1, t1 = None, 0.0
+                b2, t2 = None, 0.0
+                wait_start = time.time()
+                while not self._stop_writer_event.is_set() and (b1 is None or b2 is None):
+                    if b1 is None:
+                        try:
+                            item1 = self._record_queue.get(timeout=0.05)
+                            b1, t1 = item1 if isinstance(item1, tuple) else (item1, time.perf_counter())
+                        except queue.Empty:
+                            pass
+                    if b2 is None:
+                        try:
+                            item2 = self._secondary_record_queue.get(timeout=0.05)
+                            b2, t2 = item2 if isinstance(item2, tuple) else (item2, time.perf_counter())
+                        except queue.Empty:
+                            pass
+                    if time.time() - wait_start > 1.5:
+                        break
+
+                if b1 is None:
+                    b1 = np.zeros((BLOCK_SIZE, 2), dtype=np.float32)
+                    t1 = time.perf_counter()
+                if b2 is None:
+                    b2 = np.zeros((BLOCK_SIZE, 2), dtype=np.float32)
+                    t2 = time.perf_counter()
+
+                offset_sec = t2 - t1
+                offset_samples = int(round(offset_sec * SAMPLE_RATE))
+                offset_samples = max(-SAMPLE_RATE, min(SAMPLE_RATE, offset_samples))
+
+                if offset_samples > 0:
+                    pad = np.zeros((offset_samples, 2), dtype=np.float32)
+                    b2 = np.vstack([pad, b2])
+                elif offset_samples < 0:
+                    pad = np.zeros((abs(offset_samples), 2), dtype=np.float32)
+                    b1 = np.vstack([pad, b1])
+
+                target_backlog = 4096
+                init_pad = np.zeros((target_backlog, 2), dtype=np.float32)
+                t1_accum = np.vstack([init_pad, b1])
+                t2_accum = np.vstack([init_pad, b2])
+
+                last_flush_time = time.time()
+                last_disk_check_time = time.time()
+                blocks_since_flush = 0
+
+                def write_aligned_pair(chunk1: np.ndarray, chunk2: np.ndarray):
+                    nonlocal blocks_since_flush
+                    if multitrack_mode == "single":
+                        chunk_4ch = np.column_stack((chunk1, chunk2))
+                        sf_file.write(chunk_4ch)
+                    else:
+                        sf_file.write(chunk1)
+                        if sf_file_t2 is not None:
+                            sf_file_t2.write(chunk2)
+                    blocks_since_flush += 1
+
+                while not self._stop_writer_event.is_set():
+                    # Drain queue 1
+                    while not self._record_queue.empty():
+                        try:
+                            item = self._record_queue.get_nowait()
+                            b, _ = item if isinstance(item, tuple) else (item, 0.0)
+                            t1_accum = np.vstack([t1_accum, b])
+                        except queue.Empty:
+                            break
+
+                    # Drain queue 2
+                    while not self._secondary_record_queue.empty():
+                        try:
+                            item = self._secondary_record_queue.get_nowait()
+                            b, _ = item if isinstance(item, tuple) else (item, 0.0)
+                            t2_accum = np.vstack([t2_accum, b])
+                        except queue.Empty:
+                            break
+
+                    # Process in matched blocks of BLOCK_SIZE (4096 samples)
+                    while len(t1_accum) >= BLOCK_SIZE:
+                        chunk1 = t1_accum[:BLOCK_SIZE]
+                        t1_accum = t1_accum[BLOCK_SIZE:]
+
+                        # Zero-Drift Resynchronizer for Track 2
+                        err = len(t2_accum) - (BLOCK_SIZE + target_backlog)
+                        delta = int(np.clip(round(err * 0.01), -4, 4))
+                        m = BLOCK_SIZE + delta
+                        m = max(1, min(m, len(t2_accum)))
+
+                        raw2 = t2_accum[:m]
+                        t2_accum = t2_accum[m:]
+
+                        if m == BLOCK_SIZE:
+                            chunk2 = raw2
+                        else:
+                            x_old = np.linspace(0, 1, m, endpoint=False)
+                            x_new = np.linspace(0, 1, BLOCK_SIZE, endpoint=False)
+                            chunk2 = np.zeros((BLOCK_SIZE, 2), dtype=np.float32)
+                            chunk2[:, 0] = np.interp(x_new, x_old, raw2[:, 0])
+                            chunk2[:, 1] = np.interp(x_new, x_old, raw2[:, 1])
+
+                        # Underflow defense
+                        if len(chunk2) < BLOCK_SIZE:
+                            pad_zeros = np.zeros((BLOCK_SIZE - len(chunk2), 2), dtype=np.float32)
+                            chunk2 = np.vstack([chunk2, pad_zeros])
+
+                        write_aligned_pair(chunk1, chunk2)
+
+                    # Continuous flush & fsync every 1.0s or ~12 blocks
+                    now = time.time()
+                    if (now - last_flush_time >= 1.0) or (blocks_since_flush >= 12):
+                        sf_file.flush()
+                        try:
+                            raw_file.flush()
+                            os.fsync(raw_file.fileno())
+                        except Exception:
+                            pass
+                        if sf_file_t2 and raw_file_t2:
+                            sf_file_t2.flush()
+                            try:
+                                raw_file_t2.flush()
+                                os.fsync(raw_file_t2.fileno())
+                            except Exception:
+                                pass
+                        last_flush_time = now
+                        blocks_since_flush = 0
+
+                    if now - last_disk_check_time >= 30.0:
+                        last_disk_check_time = now
+                        safety_floor_gb, warning_floor_gb = get_disk_safety_floors(backup_folder_str)
+                        free_gb = get_free_disk_space_gb(backup_folder_str)
+                        if free_gb < safety_floor_gb:
+                            logger.critical("EMERGENCY: Disk space reached safety floor. Finalizing recording cleanly.")
+                            self.low_disk_state = True
+                            self.low_disk_message = f"Recording stopped automatically: Free space reached safety floor ({safety_floor_gb:.2f} GB)."
+                            break
+
+                    time.sleep(0.04)
+
+                # Final drainage
+                while not self._record_queue.empty():
+                    try:
+                        item = self._record_queue.get_nowait()
+                        b, _ = item if isinstance(item, tuple) else (item, 0.0)
+                        t1_accum = np.vstack([t1_accum, b])
+                    except queue.Empty:
+                        break
+                while not self._secondary_record_queue.empty():
+                    try:
+                        item = self._secondary_record_queue.get_nowait()
+                        b, _ = item if isinstance(item, tuple) else (item, 0.0)
+                        t2_accum = np.vstack([t2_accum, b])
+                    except queue.Empty:
+                        break
+
+                rem_n = len(t1_accum)
+                if rem_n > 0:
+                    chunk1 = t1_accum
+                    if len(t2_accum) >= rem_n:
+                        chunk2 = t2_accum[:rem_n]
+                    else:
+                        pad_zeros = np.zeros((rem_n - len(t2_accum), 2), dtype=np.float32)
+                        chunk2 = np.vstack([t2_accum, pad_zeros]) if len(t2_accum) > 0 else pad_zeros
+                    write_aligned_pair(chunk1, chunk2)
+
+                sf_file.flush()
+                try:
+                    raw_file.flush()
+                    os.fsync(raw_file.fileno())
+                except Exception:
+                    pass
+                if sf_file_t2 and raw_file_t2:
+                    sf_file_t2.flush()
+                    try:
+                        raw_file_t2.flush()
+                        os.fsync(raw_file_t2.fileno())
+                    except Exception:
+                        pass
 
         except Exception as e:
             logger.critical("FLAC Writer encountered an unhandled exception: %s", e, exc_info=True)
@@ -803,6 +1258,16 @@ class AudioEngine:
             if raw_file is not None:
                 try:
                     raw_file.close()
+                except Exception:
+                    pass
+            if sf_file_t2 is not None:
+                try:
+                    sf_file_t2.close()
+                except Exception:
+                    pass
+            if raw_file_t2 is not None:
+                try:
+                    raw_file_t2.close()
                 except Exception:
                     pass
             if self.low_disk_state:
@@ -829,3 +1294,11 @@ class AudioEngine:
                 success = self.start_input_stream()
                 if success:
                     logger.info("Device Watchdog: Successfully reconnected audio input!")
+
+            # Secondary stream watchdog
+            if self.config.get("secondary_track_enabled", False):
+                if not self.is_secondary_stream_active or self.secondary_device_error_state:
+                    logger.info("Device Watchdog: Attempting secondary audio stream reconnect...")
+                    sec_success = self.start_secondary_stream()
+                    if sec_success:
+                        logger.info("Device Watchdog: Successfully reconnected secondary audio input!")

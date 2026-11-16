@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 
-APP_VERSION = "1.5.5"
+APP_VERSION = "1.6.0"
 
 # Logger setup
 logger = logging.getLogger("AudioGuard")
@@ -80,6 +80,11 @@ DEFAULT_CONFIG = {
     "first_run_completed": False,
     "input_device_name": "",
     "input_host_api": "",
+    "secondary_track_enabled": False,
+    "secondary_source_type": "desktop",  # "desktop" (loopback) or "input" (second mic/line-in)
+    "secondary_device_name": "",
+    "secondary_host_api": "",
+    "multitrack_mode": "separate",        # "separate" (2 files) or "single" (4-channel multitrack FLAC)
     "monitor_device_name": "",
     "mono_sum": True,
     "schedule_start": "18:00",
@@ -716,6 +721,7 @@ def convert_flac_companion(flac_path: str, companion_path=None, target_format: s
     subtype = spec["subtype"]
 
     import soundfile as sf
+    import numpy as np
 
     flac_p = Path(flac_path)
     if not flac_p.exists():
@@ -732,26 +738,30 @@ def convert_flac_companion(flac_path: str, companion_path=None, target_format: s
             with sf.SoundFile(str(dst_p), mode="r") as existing_f:
                 if existing_f.frames > 0:
                     with sf.SoundFile(str(flac_p), mode="r") as src_f:
-                        if abs((existing_f.frames / existing_f.samplerate) - (src_f.frames / src_f.samplerate)) <= 0.5:
-                            return True
+                        # Only compare if source header has a valid final frame count
+                        if src_f.frames < 1000000000:
+                            if abs((existing_f.frames / existing_f.samplerate) - (src_f.frames / src_f.samplerate)) <= 0.5:
+                                return True
         except Exception:
             logger.warning("Existing companion %s is corrupted or incomplete. Re-converting...", dst_p.name)
 
     temp_dst = dst_p.with_suffix(f"{ext}.tmp")
 
     try:
-        # 1. Read source FLAC attributes
+        # 1. Read source FLAC attributes and stream audio blocks
+        total_read_frames = 0
         with sf.SoundFile(str(flac_p), mode="r") as src:
             src_rate = src.samplerate
             src_channels = src.channels
-            src_frames = src.frames
-            src_duration = src_frames / src_rate if src_rate > 0 else 0.0
+
+            # If multitrack (e.g. 4 channels) or target is MP3, downmix to stereo (2 channels)
+            dst_channels = min(2, src_channels) if (fmt == "mp3" or src_channels > 2) else src_channels
 
             write_kwargs = {
                 "file": str(temp_dst),
                 "mode": "w",
                 "samplerate": src_rate,
-                "channels": src_channels,
+                "channels": dst_channels,
                 "format": sf_format
             }
             if subtype:
@@ -764,10 +774,22 @@ def convert_flac_companion(flac_path: str, companion_path=None, target_format: s
                         data = src.read(chunk_size, dtype="float32")
                         if len(data) == 0:
                             break
-                        dst.write(data)
+                        total_read_frames += len(data)
+                        if src_channels == 4 and dst_channels == 2:
+                            stereo = np.zeros((len(data), 2), dtype=np.float32)
+                            stereo[:, 0] = data[:, 0] + data[:, 2] * 0.5
+                            stereo[:, 1] = data[:, 1] + data[:, 3] * 0.5
+                            max_val = float(np.max(np.abs(stereo)))
+                            if max_val > 0.99:
+                                stereo = stereo * (0.99 / max_val)
+                            dst.write(stereo)
+                        else:
+                            dst.write(data)
                     except Exception:
                         # Reached EOF on power-loss truncated file cleanly
                         break
+
+            src_duration = total_read_frames / src_rate if src_rate > 0 else 0.0
 
         # 2. Automated 3-Step Verification Gate
         if not temp_dst.exists() or temp_dst.stat().st_size < 1024:

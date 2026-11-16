@@ -179,6 +179,8 @@ class AudioGuardApp:
         # Populate devices and start audio
         self.refresh_devices_list()
         self.audio.start_input_stream()
+        if self.config.get("secondary_track_enabled", False):
+            self.audio.start_secondary_stream()
 
         # Startup retention cleanup
         self.root.after(1000, self._startup_cleanup)
@@ -508,11 +510,19 @@ class AudioGuardApp:
 
     def _update_dashboard_summary(self):
         """Updates the read-only summary card on the Dashboard."""
-        # Mic Device
+        # Mic Device & Secondary Track
         cur_mic = self.config.get("input_device_name", "")
         if not cur_mic:
             cur_mic = self.input_device_combo.get() if hasattr(self, "input_device_combo") else "Default"
-        self.sum_mic_lbl.configure(text=f"🎤  {t('sec_audio_device')} {cur_mic}")
+
+        sec_enabled = self.config.get("secondary_track_enabled", False)
+        if sec_enabled:
+            sec_dev = self.config.get("secondary_device_name", "")
+            if not sec_dev and hasattr(self, "secondary_device_combo"):
+                sec_dev = self.secondary_device_combo.get()
+            self.sum_mic_lbl.configure(text=f"🎤  {cur_mic}  |  🎧 {sec_dev or 'Track 2'}")
+        else:
+            self.sum_mic_lbl.configure(text=f"🎤  {t('sec_audio_device')} {cur_mic}")
 
         # Schedules summary
         if not self.scheduler.enabled:
@@ -624,6 +634,164 @@ class AudioGuardApp:
             command=self.on_input_device_changed
         )
         self.input_device_combo.pack(fill="x", padx=16, pady=(0, 12))
+
+        # Section 1.5: Secondary Audio Track (Track 2)
+        self.sec_track_frame = ctk.CTkFrame(
+            self.settings_scroll,
+            fg_color="#141417",
+            corner_radius=6,
+            border_width=1,
+            border_color=COLOR_PANEL_BORDER
+        )
+        self.sec_track_frame.pack(fill="x", padx=16, pady=(0, 12))
+
+        sec_card_inner = ctk.CTkFrame(self.sec_track_frame, fg_color="transparent")
+        sec_card_inner.pack(fill="x", padx=12, pady=10)
+
+        # Header with Enable Checkbox
+        sec_head = ctk.CTkFrame(sec_card_inner, fg_color="transparent")
+        sec_head.pack(fill="x", pady=(0, 6))
+
+        self.sec_secondary_lbl = ctk.CTkLabel(
+            sec_head,
+            text=f"🎧  {t('sec_secondary_track')}",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=COLOR_TEXT_WHITE
+        )
+        self.sec_secondary_lbl.pack(side="left")
+
+        self.secondary_enabled_var = ctk.BooleanVar(value=bool(self.config.get("secondary_track_enabled", False)))
+        self.secondary_enabled_chk = ctk.CTkCheckBox(
+            sec_head,
+            text=t("opt_enable_secondary"),
+            variable=self.secondary_enabled_var,
+            font=ctk.CTkFont(size=11),
+            command=self.on_toggle_secondary_enabled
+        )
+        self.secondary_enabled_chk.pack(side="right")
+
+        # Sub-controls container
+        self.sec_controls_frame = ctk.CTkFrame(sec_card_inner, fg_color="transparent")
+        if self.secondary_enabled_var.get():
+            self.sec_controls_frame.pack(fill="x", pady=(4, 0))
+
+        # 1. Source Type Selector
+        src_row = ctk.CTkFrame(self.sec_controls_frame, fg_color="transparent")
+        src_row.pack(fill="x", pady=(2, 6))
+
+        self.lbl_source_type = ctk.CTkLabel(
+            src_row,
+            text=t("lbl_source_type"),
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.lbl_source_type.pack(side="left", padx=(0, 10))
+
+        self.sec_source_var = ctk.StringVar(value=self.config.get("secondary_source_type", "desktop"))
+        self.src_desktop_rb = ctk.CTkRadioButton(
+            src_row,
+            text=t("opt_desktop_audio"),
+            value="desktop",
+            variable=self.sec_source_var,
+            font=ctk.CTkFont(size=11),
+            command=self.on_secondary_source_type_changed
+        )
+        self.src_desktop_rb.pack(side="left", padx=(0, 12))
+
+        self.src_mic_rb = ctk.CTkRadioButton(
+            src_row,
+            text=t("opt_second_input"),
+            value="input",
+            variable=self.sec_source_var,
+            font=ctk.CTkFont(size=11),
+            command=self.on_secondary_source_type_changed
+        )
+        self.src_mic_rb.pack(side="left")
+
+        # 2. Secondary Device Combobox
+        self.secondary_device_combo = ctk.CTkComboBox(
+            self.sec_controls_frame,
+            values=["Searching audio devices..."],
+            height=28,
+            command=self.on_secondary_device_changed
+        )
+        self.secondary_device_combo.pack(fill="x", pady=(0, 8))
+
+        # 3. Output Packaging Mode
+        pkg_row = ctk.CTkFrame(self.sec_controls_frame, fg_color="transparent")
+        pkg_row.pack(fill="x", pady=(2, 8))
+
+        self.lbl_packaging_mode = ctk.CTkLabel(
+            pkg_row,
+            text=t("lbl_packaging_mode"),
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.lbl_packaging_mode.pack(side="left", padx=(0, 10))
+
+        self.sec_packaging_var = ctk.StringVar(value=self.config.get("multitrack_mode", "separate"))
+        self.pkg_sep_rb = ctk.CTkRadioButton(
+            pkg_row,
+            text=t("opt_separate_files"),
+            value="separate",
+            variable=self.sec_packaging_var,
+            font=ctk.CTkFont(size=11),
+            command=self.on_multitrack_mode_changed
+        )
+        self.pkg_sep_rb.pack(side="left", padx=(0, 12))
+
+        self.pkg_single_rb = ctk.CTkRadioButton(
+            pkg_row,
+            text=t("opt_single_multitrack"),
+            value="single",
+            variable=self.sec_packaging_var,
+            font=ctk.CTkFont(size=11),
+            command=self.on_multitrack_mode_changed
+        )
+        self.pkg_single_rb.pack(side="left")
+
+        # 4. Live Secondary VU Meter
+        sec_meter_head = ctk.CTkFrame(self.sec_controls_frame, fg_color="transparent")
+        sec_meter_head.pack(fill="x", pady=(2, 2))
+
+        self.sec_meter_lbl = ctk.CTkLabel(
+            sec_meter_head,
+            text=t("sec_meter_title"),
+            font=ctk.CTkFont(size=11),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.sec_meter_lbl.pack(side="left")
+
+        self.sec_meter_numeric_lbl = ctk.CTkLabel(
+            sec_meter_head,
+            text="L: -60.0 dBFS | R: -60.0 dBFS",
+            font=ctk.CTkFont(size=11, family="Consolas"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.sec_meter_numeric_lbl.pack(side="right")
+
+        self.sec_meter_canvas = tk.Canvas(
+            self.sec_controls_frame,
+            height=26,
+            bg=COLOR_PANEL,
+            highlightthickness=0
+        )
+        self.sec_meter_canvas.pack(fill="x", pady=(2, 4))
+
+        sec_bar_h = 10
+        self.sec_y_l = 2
+        self.sec_y_r = 14
+
+        self.sec_track_l = self.sec_meter_canvas.create_rectangle(0, self.sec_y_l, 1000, self.sec_y_l + sec_bar_h, fill="#0A0A0C", outline="")
+        self.sec_track_r = self.sec_meter_canvas.create_rectangle(0, self.sec_y_r, 1000, self.sec_y_r + sec_bar_h, fill="#0A0A0C", outline="")
+
+        self.sec_bar_l_green = self.sec_meter_canvas.create_rectangle(0, self.sec_y_l, 0, self.sec_y_l + sec_bar_h, fill=COLOR_GREEN, outline="")
+        self.sec_bar_l_amber = self.sec_meter_canvas.create_rectangle(0, self.sec_y_l, 0, self.sec_y_l + sec_bar_h, fill=COLOR_AMBER, outline="")
+        self.sec_bar_l_red   = self.sec_meter_canvas.create_rectangle(0, self.sec_y_l, 0, self.sec_y_l + sec_bar_h, fill=COLOR_RED, outline="")
+
+        self.sec_bar_r_green = self.sec_meter_canvas.create_rectangle(0, self.sec_y_r, 0, self.sec_y_r + sec_bar_h, fill=COLOR_GREEN, outline="")
+        self.sec_bar_r_amber = self.sec_meter_canvas.create_rectangle(0, self.sec_y_r, 0, self.sec_y_r + sec_bar_h, fill=COLOR_AMBER, outline="")
+        self.sec_bar_r_red   = self.sec_meter_canvas.create_rectangle(0, self.sec_y_r, 0, self.sec_y_r + sec_bar_h, fill=COLOR_RED, outline="")
 
         # Section 2: Multi-Slot Daily Schedules
         sch_head = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
@@ -1068,6 +1236,18 @@ class AudioGuardApp:
             self.input_device_combo.configure(state=state_str)
         if hasattr(self, "rescan_btn"):
             self.rescan_btn.configure(state=state_str)
+        if hasattr(self, "secondary_enabled_chk"):
+            self.secondary_enabled_chk.configure(state=state_str)
+        if hasattr(self, "secondary_device_combo"):
+            self.secondary_device_combo.configure(state=state_str)
+        if hasattr(self, "src_desktop_rb"):
+            self.src_desktop_rb.configure(state=state_str)
+        if hasattr(self, "src_mic_rb"):
+            self.src_mic_rb.configure(state=state_str)
+        if hasattr(self, "pkg_sep_rb"):
+            self.pkg_sep_rb.configure(state=state_str)
+        if hasattr(self, "pkg_single_rb"):
+            self.pkg_single_rb.configure(state=state_str)
 
         # 2. Storage & File naming controls
         if hasattr(self, "browse_btn"):
@@ -2051,6 +2231,38 @@ class AudioGuardApp:
                 self.meter_canvas.coords(self.bar_r_amber, green_end, self.y_r, ra, self.y_r + bar_h)
                 self.meter_canvas.coords(self.bar_r_red, amber_end, self.y_r, rr, self.y_r + bar_h)
 
+        # Update Secondary Level VU Meter (Settings Section 1.5)
+        if hasattr(self, "secondary_enabled_var") and self.secondary_enabled_var.get() and hasattr(self, "sec_meter_canvas"):
+            sl_peak, sr_peak, _, _, _, _ = self.audio.get_secondary_levels()
+            if hasattr(self, "sec_meter_numeric_lbl"):
+                self.sec_meter_numeric_lbl.configure(text=f"L: {sl_peak:5.1f} dBFS | R: {sr_peak:5.1f} dBFS")
+            sw = self.sec_meter_canvas.winfo_width()
+            if sw > 20:
+                sec_bar_h = 10
+                self.sec_meter_canvas.coords(self.sec_track_l, 0, self.sec_y_l, sw, self.sec_y_l + sec_bar_h)
+                self.sec_meter_canvas.coords(self.sec_track_r, 0, self.sec_y_r, sw, self.sec_y_r + sec_bar_h)
+
+                green_end = int(sw * (42.0 / 60.0))
+                amber_end = int(sw * (54.0 / 60.0))
+
+                def calc_sec_segments(peak_db: float):
+                    norm = max(0.0, min(1.0, (peak_db + 60.0) / 60.0))
+                    px = int(norm * sw)
+                    gw = min(px, green_end)
+                    aw = min(px, amber_end) if px > green_end else green_end
+                    rw = px if px > amber_end else amber_end
+                    return gw, aw, rw
+
+                slg, sla, slr = calc_sec_segments(sl_peak)
+                self.sec_meter_canvas.coords(self.sec_bar_l_green, 0, self.sec_y_l, slg, self.sec_y_l + sec_bar_h)
+                self.sec_meter_canvas.coords(self.sec_bar_l_amber, green_end, self.sec_y_l, sla, self.sec_y_l + sec_bar_h)
+                self.sec_meter_canvas.coords(self.sec_bar_l_red, amber_end, self.sec_y_l, slr, self.sec_y_l + sec_bar_h)
+
+                srg, sra, srr = calc_sec_segments(sr_peak)
+                self.sec_meter_canvas.coords(self.sec_bar_r_green, 0, self.sec_y_r, srg, self.sec_y_r + sec_bar_h)
+                self.sec_meter_canvas.coords(self.sec_bar_r_amber, green_end, self.sec_y_r, sra, self.sec_y_r + sec_bar_h)
+                self.sec_meter_canvas.coords(self.sec_bar_r_red, amber_end, self.sec_y_r, srr, self.sec_y_r + sec_bar_h)
+
         self.root.after(66, self._meter_ui_tick)
 
     # -------------------------------------------------------------
@@ -2092,10 +2304,69 @@ class AudioGuardApp:
                     break
         self.input_device_combo.set(selected_in)
         self._update_dashboard_summary()
+        self.refresh_secondary_devices_list()
 
         if force_rescan and hasattr(self, "rescan_btn"):
             self.rescan_btn.configure(text=f"✓ {t('btn_refreshed')}", state="normal")
             self.root.after(1000, lambda: self.rescan_btn.configure(text=f"🔄 {t('btn_refresh')}"))
+
+    def refresh_secondary_devices_list(self):
+        """Enumerates and populates devices available for Track 2."""
+        src_type = self.sec_source_var.get() if hasattr(self, "sec_source_var") else self.config.get("secondary_source_type", "desktop")
+        devices = self.audio.get_secondary_audio_devices(source_type=src_type)
+        self.secondary_devices_cache = devices
+
+        names = [d["display_name"] for d in devices]
+        if not names:
+            names = ["No Audio Devices Found"]
+        if hasattr(self, "secondary_device_combo"):
+            self.secondary_device_combo.configure(values=names)
+            saved = self.config.get("secondary_device_name", "")
+            selected = names[0]
+            if saved:
+                for n in names:
+                    if saved.lower() in n.lower() or n.lower() in saved.lower():
+                        selected = n
+                        break
+            self.secondary_device_combo.set(selected)
+
+    def on_toggle_secondary_enabled(self):
+        enabled = self.secondary_enabled_var.get()
+        self.config.set("secondary_track_enabled", enabled)
+        if enabled:
+            self.sec_controls_frame.pack(fill="x", pady=(4, 0))
+            self.refresh_secondary_devices_list()
+            self.audio.start_secondary_stream()
+        else:
+            self.sec_controls_frame.pack_forget()
+            self.audio.stop_secondary_stream()
+        self._update_dashboard_summary()
+        logger.info("Secondary audio track %s", "ENABLED" if enabled else "DISABLED")
+
+    def on_secondary_source_type_changed(self):
+        src_type = self.sec_source_var.get()
+        self.config.set("secondary_source_type", src_type)
+        self.refresh_secondary_devices_list()
+        if hasattr(self, "secondary_device_combo"):
+            new_choice = self.secondary_device_combo.get()
+            self.on_secondary_device_changed(new_choice)
+        logger.info("Secondary source type changed to: %s", src_type)
+
+    def on_secondary_device_changed(self, choice: str):
+        for dev in getattr(self, "secondary_devices_cache", []):
+            if dev["display_name"] == choice or dev["name"] == choice:
+                self.config.update(secondary_device_name=dev["name"], secondary_host_api=dev["hostapi"])
+                logger.info("Selected secondary device: %s (%s, ID: %d)", dev["name"], dev["hostapi"], dev["id"])
+                if self.secondary_enabled_var.get():
+                    self.audio.start_secondary_stream()
+                self._update_dashboard_summary()
+                break
+
+    def on_multitrack_mode_changed(self):
+        mode = self.sec_packaging_var.get()
+        self.config.set("multitrack_mode", mode)
+        logger.info("Multitrack packaging mode changed: %s", mode)
+        self._update_dashboard_summary()
 
     def on_input_device_changed(self, choice: str):
         """User selected a new input device."""
@@ -2406,6 +2677,26 @@ class AudioGuardApp:
             self.sec_mic_lbl.configure(text=t("sec_audio_device"))
         if hasattr(self, "rescan_btn"):
             self.rescan_btn.configure(text=f"🔄 {t('btn_refresh')}")
+
+        # Settings View - Section 1.5 (Secondary Audio Track)
+        if hasattr(self, "sec_secondary_lbl"):
+            self.sec_secondary_lbl.configure(text=f"🎧  {t('sec_secondary_track')}")
+        if hasattr(self, "secondary_enabled_chk"):
+            self.secondary_enabled_chk.configure(text=t("opt_enable_secondary"))
+        if hasattr(self, "lbl_source_type"):
+            self.lbl_source_type.configure(text=t("lbl_source_type"))
+        if hasattr(self, "src_desktop_rb"):
+            self.src_desktop_rb.configure(text=t("opt_desktop_audio"))
+        if hasattr(self, "src_mic_rb"):
+            self.src_mic_rb.configure(text=t("opt_second_input"))
+        if hasattr(self, "lbl_packaging_mode"):
+            self.lbl_packaging_mode.configure(text=t("lbl_packaging_mode"))
+        if hasattr(self, "pkg_sep_rb"):
+            self.pkg_sep_rb.configure(text=t("opt_separate_files"))
+        if hasattr(self, "pkg_single_rb"):
+            self.pkg_single_rb.configure(text=t("opt_single_multitrack"))
+        if hasattr(self, "sec_meter_lbl"):
+            self.sec_meter_lbl.configure(text=t("sec_meter_title"))
 
         # Settings View - Section 2 (Schedules)
         if hasattr(self, "sec_sch_lbl"):

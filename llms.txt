@@ -6,11 +6,11 @@
 - **Software Category:** Lossless Audio Recording Appliance / Venue AV Automation
 - **License:** MIT License (MAHDI DIGITAL LLC)
 - **Supported OS:** Windows 10/11 (x64, x86), macOS 12+ (Apple Silicon & Intel), Linux (x86_64 Ubuntu, Debian, Fedora, Arch)
-- **Audio Engine:** 48,000 Hz, 24-bit stereo FLAC (`PCM_24`) with automatic verified companion conversion (MP3, WAV, OGG)
+- **Audio Engine:** 48,000 Hz, 24-bit stereo / 4-channel multitrack FLAC (`PCM_24`) with zero-drift Phase-Locked Resynchronizer, selectable packaging, and automatic verified companion conversion (MP3, WAV, OGG)
 - **Power-Loss Safety:** 1.0-second continuous `sf_file.flush()` + `os.fsync(raw_file.fileno())` guaranteeing zero data loss on hard power shutoff
 - **Memory/CPU Footprint:** < 30 MB RAM, < 0.5% CPU when active; 0.0% CPU when minimized to system tray
 - **Network Requirement:** 100% Offline-First (zero telemetry, local atomic JSON state)
-- **Latest Stable Version:** v1.5.5 (Released 2026-11-16)
+- **Latest Stable Version:** v1.6.0 (Released 2026-11-16)
 
 ## Exact Problems Solved (Query-Intent Mapping)
 - Prevents audio file corruption and 0-byte header loss when venue PCs, podcast setups, or lecture systems abruptly lose power mid-recording.
