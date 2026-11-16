@@ -1193,60 +1193,78 @@ class AudioGuardApp:
     def _update_settings_lock_state(self, force: bool = False):
         """
         Locks critical settings when audio recording is active.
-        Prevents PortAudio stream destruction, disk path mutations, and schedule race conditions.
+        If a device error occurs during recording, unlocks audio device controls
+        so the operator can select an alternative working microphone.
         """
         is_rec = bool(getattr(self.audio, "is_recording", False))
-        if not force and getattr(self, "_last_settings_locked_state", None) == is_rec:
-            return
-        self._last_settings_locked_state = is_rec
+        has_error = bool(getattr(self.audio, "device_error_state", False))
+        should_lock_audio = is_rec and not has_error
 
-        # Show or hide settings lock banner
+        state_key = (is_rec, has_error)
+        if not force and getattr(self, "_last_settings_locked_state", None) == state_key:
+            return
+        self._last_settings_locked_state = state_key
+
+        # Show or hide settings lock / emergency unlock banner
         if hasattr(self, "settings_lock_banner") and hasattr(self, "sec_mic_head"):
-            if is_rec:
+            if is_rec and not has_error:
+                if hasattr(self, "lock_banner_lbl"):
+                    self.lock_banner_lbl.configure(text=t("settings_locked_banner"))
+                self.settings_lock_banner.configure(fg_color="#332200", border_color="#B8860B")
+                self.settings_lock_banner.pack(fill="x", padx=16, pady=(10, 8), before=self.sec_mic_head)
+            elif is_rec and has_error:
+                if hasattr(self, "lock_banner_lbl"):
+                    self.lock_banner_lbl.configure(text="⚠️ AUDIO INPUT DISCONNECTED — Device settings are unlocked so you can select another microphone.")
+                self.settings_lock_banner.configure(fg_color="#3b1212", border_color=COLOR_RED)
                 self.settings_lock_banner.pack(fill="x", padx=16, pady=(10, 8), before=self.sec_mic_head)
             else:
                 self.settings_lock_banner.pack_forget()
 
-        # State string for UI inputs
-        state_str = "disabled" if is_rec else "normal"
+        # State strings for UI inputs
+        audio_ctrl_state = "disabled" if should_lock_audio else "normal"
+        storage_ctrl_state = "disabled" if is_rec else "normal"
 
-        # 1. Audio input device controls
+        # 1. Audio input device controls (unlocked during device error)
         if hasattr(self, "input_device_combo"):
-            self.input_device_combo.configure(state=state_str)
+            self.input_device_combo.configure(state=audio_ctrl_state)
         if hasattr(self, "rescan_btn"):
-            self.rescan_btn.configure(state=state_str)
+            self.rescan_btn.configure(state=audio_ctrl_state)
+        if hasattr(self, "add_source_btn"):
+            self.add_source_btn.configure(state=audio_ctrl_state)
+        if hasattr(self, "sec_remove_btn"):
+            self.sec_remove_btn.configure(state=audio_ctrl_state)
         if hasattr(self, "secondary_enabled_chk"):
-            self.secondary_enabled_chk.configure(state=state_str)
+            self.secondary_enabled_chk.configure(state=audio_ctrl_state)
         if hasattr(self, "secondary_device_combo"):
-            self.secondary_device_combo.configure(state=state_str)
+            self.secondary_device_combo.configure(state=audio_ctrl_state)
         if hasattr(self, "src_desktop_rb"):
-            self.src_desktop_rb.configure(state=state_str)
+            self.src_desktop_rb.configure(state=audio_ctrl_state)
         if hasattr(self, "src_mic_rb"):
-            self.src_mic_rb.configure(state=state_str)
+            self.src_mic_rb.configure(state=audio_ctrl_state)
         if hasattr(self, "pkg_sep_rb"):
-            self.pkg_sep_rb.configure(state=state_str)
+            self.pkg_sep_rb.configure(state=audio_ctrl_state)
         if hasattr(self, "pkg_single_rb"):
-            self.pkg_single_rb.configure(state=state_str)
+            self.pkg_single_rb.configure(state=audio_ctrl_state)
 
-        # 2. Storage & File naming controls
+        # 2. Storage & File naming controls (always locked while recording)
         if hasattr(self, "browse_btn"):
-            self.browse_btn.configure(state=state_str)
+            self.browse_btn.configure(state=storage_ctrl_state)
         if hasattr(self, "retention_entry"):
-            self.retention_entry.configure(state=state_str)
+            self.retention_entry.configure(state=storage_ctrl_state)
         if hasattr(self, "naming_entry"):
-            self.naming_entry.configure(state=state_str)
+            self.naming_entry.configure(state=storage_ctrl_state)
         if hasattr(self, "save_naming_btn"):
-            self.save_naming_btn.configure(state=state_str)
+            self.save_naming_btn.configure(state=storage_ctrl_state)
         if hasattr(self, "companion_combo"):
-            self.companion_combo.configure(state=state_str)
+            self.companion_combo.configure(state=storage_ctrl_state)
         if hasattr(self, "folder_grouping_menu"):
-            self.folder_grouping_menu.configure(state=state_str)
+            self.folder_grouping_menu.configure(state=storage_ctrl_state)
 
-        # 3. Schedule controls
+        # 3. Schedule controls (always locked while recording)
         if hasattr(self, "sched_enabled_chk"):
-            self.sched_enabled_chk.configure(state=state_str)
+            self.sched_enabled_chk.configure(state=storage_ctrl_state)
         if hasattr(self, "add_slot_btn"):
-            self.add_slot_btn.configure(state=state_str)
+            self.add_slot_btn.configure(state=storage_ctrl_state)
         if hasattr(self, "save_sch_btn"):
             if is_rec:
                 self.save_sch_btn.configure(state="disabled")
@@ -1270,15 +1288,15 @@ class AudioGuardApp:
         if hasattr(self, "slot_rows"):
             for row in self.slot_rows:
                 if "start_entry" in row:
-                    row["start_entry"].configure(state=state_str)
+                    row["start_entry"].configure(state=storage_ctrl_state)
                 if "end_entry" in row:
-                    row["end_entry"].configure(state=state_str)
+                    row["end_entry"].configure(state=storage_ctrl_state)
                 if "label_entry" in row:
-                    row["label_entry"].configure(state=state_str)
+                    row["label_entry"].configure(state=storage_ctrl_state)
                 if "all_btn" in row and row["all_btn"]:
-                    row["all_btn"].configure(state=state_str)
+                    row["all_btn"].configure(state=storage_ctrl_state)
                 if "del_btn" in row and row["del_btn"]:
-                    row["del_btn"].configure(state=state_str)
+                    row["del_btn"].configure(state=storage_ctrl_state)
                 if "day_buttons" in row and row["day_buttons"]:
                     for d_btn in row["day_buttons"].values():
                         d_btn.configure(state=state_str)

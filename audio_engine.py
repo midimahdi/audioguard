@@ -35,6 +35,26 @@ DTYPE = "float32"
 SILENCE_THRESHOLD_RMS = 0.000316  # Approx -70 dBFS
 CLIP_THRESHOLD = 0.999            # Approx -0.01 dBFS
 
+# Known virtual/dummy devices that must be deprioritized during auto-fallback
+VIRTUAL_DUMMY_KEYWORDS = (
+    "camo",
+    "steam streaming",
+    "virtual cable",
+    "vb-audio",
+    "droidcam",
+    "iriun",
+    "obs-camera",
+    "obs virtual",
+    "ndi audio"
+)
+
+def is_virtual_dummy(name: str) -> bool:
+    """Returns True if the device name indicates a dummy or third-party virtual bridge."""
+    if not name:
+        return False
+    n = name.lower()
+    return any(kw in n for kw in VIRTUAL_DUMMY_KEYWORDS)
+
 class AudioEngine:
     def __init__(self, config_manager):
         self.config = config_manager
@@ -47,6 +67,10 @@ class AudioEngine:
         self.is_stream_active = False
         self.device_error_state = False
         self.device_error_message = ""
+
+        # Stream Sample Rates (Dynamic adaptive resampling)
+        self.input_stream_rate: int = SAMPLE_RATE
+        self.secondary_stream_rate: int = SAMPLE_RATE
         
         # DSP settings
         self.mono_sum: bool = self.config.get("mono_sum", True)
@@ -278,23 +302,17 @@ class AudioEngine:
     def find_source_by_name(self, name_substr: str, hostapi_hint: str = "") -> Optional[Dict[str, Any]]:
         """
         Finds a unified source entry matching name or substring.
-        Falls back to the first available source if not found.
+        Falls back to OS default recording device and filters out dummy virtual drivers.
         """
         sources = self.get_unified_audio_sources()
         if not sources:
             return None
 
-        if not name_substr:
-            for s in sources:
-                if not s.get("is_setup_needed", False):
-                    return s
-            return sources[0]
-
-        name_lower = name_substr.lower().strip()
-        hostapi_lower = hostapi_hint.lower().strip()
+        name_lower = name_substr.lower().strip() if name_substr else ""
+        hostapi_lower = hostapi_hint.lower().strip() if hostapi_hint else ""
 
         # Pass 1: exact / substring match on name or display_name and hostapi
-        if hostapi_lower:
+        if name_lower and hostapi_lower:
             for s in sources:
                 s_name = s["name"].lower()
                 s_disp = s.get("display_name", "").lower()
@@ -302,16 +320,35 @@ class AudioEngine:
                     return s
 
         # Pass 2: match on name or display_name only
+        if name_lower:
+            for s in sources:
+                s_name = s["name"].lower()
+                s_disp = s.get("display_name", "").lower()
+                if name_lower in s_name or s_name in name_lower or name_lower in s_disp or s_disp in name_lower:
+                    return s
+
+        # Pass 3: Fallback to OS Default Recording Device (filtering virtual dummies)
+        try:
+            default_in_idx = sd.default.device[0]
+            if default_in_idx is not None and default_in_idx >= 0:
+                for s in sources:
+                    if s.get("id") == default_in_idx and not s.get("is_setup_needed", False):
+                        if not is_virtual_dummy(s.get("name", "")):
+                            logger.info("Device fallback: selected OS Default Recording Device: %s", s.get("display_name"))
+                            return s
+        except Exception:
+            pass
+
+        # Pass 4: Fallback to first non-virtual physical source
         for s in sources:
-            s_name = s["name"].lower()
-            s_disp = s.get("display_name", "").lower()
-            if name_lower in s_name or s_name in name_lower or name_lower in s_disp or s_disp in name_lower:
+            if not s.get("is_setup_needed", False) and not is_virtual_dummy(s.get("name", "")):
                 return s
 
-        # Pass 3: fallback to first working source
+        # Pass 5: Fallback to any non-setup source
         for s in sources:
             if not s.get("is_setup_needed", False):
                 return s
+
         return sources[0]
 
     def find_device_by_name(self, name_substr: str, is_input: bool = True, hostapi_hint: str = "") -> Optional[int]:
@@ -325,31 +362,36 @@ class AudioEngine:
         if not target_list:
             return None
             
-        if not name_substr:
-            # Return first clean hardware device or system default
-            try:
-                default_idx = sd.default.device[0 if is_input else 1]
-                if default_idx is not None and default_idx >= 0:
-                    return default_idx
-            except Exception:
-                pass
-            return target_list[0]["id"]
-
-        name_lower = name_substr.lower().strip()
-        hostapi_lower = hostapi_hint.lower().strip()
+        name_lower = name_substr.lower().strip() if name_substr else ""
+        hostapi_lower = hostapi_hint.lower().strip() if hostapi_hint else ""
 
         # Pass 1: Match both name and hostapi
-        if hostapi_lower:
+        if name_lower and hostapi_lower:
             for dev in target_list:
                 if (name_lower in dev["name"].lower() or dev["name"].lower() in name_lower) and hostapi_lower in dev["hostapi"].lower():
                     return dev["id"]
 
         # Pass 2: Match name only
-        for dev in target_list:
-            if name_lower in dev["name"].lower() or dev["name"].lower() in name_lower:
-                return dev["id"]
+        if name_lower:
+            for dev in target_list:
+                if name_lower in dev["name"].lower() or dev["name"].lower() in name_lower:
+                    return dev["id"]
 
-        # Pass 3: Return first available clean device
+        # Pass 3: System default device
+        try:
+            default_idx = sd.default.device[0 if is_input else 1]
+            if default_idx is not None and default_idx >= 0:
+                return default_idx
+        except Exception:
+            pass
+
+        # Pass 4: First non-virtual clean device
+        if is_input:
+            for dev in target_list:
+                if not is_virtual_dummy(dev.get("name", "")):
+                    return dev["id"]
+
+        # Pass 5: Return first available device
         logger.warning("Device '%s' not found, falling back to: %s", name_substr, target_list[0]["display_name"])
         return target_list[0]["id"]
 
@@ -377,7 +419,7 @@ class AudioEngine:
 
         inputs, outputs = self.get_audio_devices()
 
-        if was_active:
+        if was_active or self.is_recording:
             self.start_input_stream()
             if self.config.get("monitoring_enabled", False):
                 self.start_monitor_stream()
@@ -387,10 +429,130 @@ class AudioEngine:
         return inputs, outputs
 
     # -------------------------------------------------------------
-    # Stream Initialization & Reconnection
+    # Stream Initialization & Resilient Connection
     # -------------------------------------------------------------
+    def _open_input_stream_resilient(
+        self,
+        dev_id: int,
+        source: Dict[str, Any],
+        callback: Any
+    ) -> Tuple[Optional[sd.InputStream], int, int, str]:
+        """
+        Attempts to open an InputStream with 5-tier resilience:
+        1. Determines channels and WASAPI loopback settings.
+        2. Tries 48,000 Hz primary sample rate.
+        3. If sample rate error occurs (-9997), tries device default sample rate
+           and standard fallback rates (44100, 96000, 32000, etc.).
+        4. On Windows, if WASAPI fails (e.g. OBS locked exclusive mode), searches
+           for the same physical hardware name under DirectSound or MME.
+        5. If still failing, attempts fallback to the OS default recording device.
+        Returns: (stream, actual_device_id, actual_sample_rate, error_message)
+        """
+        import platform
+        is_windows = platform.system() == "Windows"
+
+        try:
+            dev_info = sd.query_devices(dev_id)
+        except Exception as e:
+            return None, dev_id, SAMPLE_RATE, f"Device #{dev_id} query failed: {e}"
+
+        is_wasapi_loopback = False
+        if is_windows and (source.get("is_wasapi_loopback") or dev_info.get("max_input_channels", 0) == 0):
+            is_wasapi_loopback = True
+
+        if is_wasapi_loopback:
+            input_channels = min(2, dev_info.get("max_output_channels", 2))
+            extra_settings = sd.WasapiSettings(loopback=True)
+        else:
+            input_channels = min(2, dev_info.get("max_input_channels", 0))
+            extra_settings = None
+
+        if input_channels < 1:
+            return None, dev_id, SAMPLE_RATE, f"Device #{dev_id} has 0 input channels."
+
+        rates_to_try = [SAMPLE_RATE]
+        default_sr = int(dev_info.get("default_samplerate", SAMPLE_RATE))
+        if default_sr not in rates_to_try and default_sr > 0:
+            rates_to_try.append(default_sr)
+        for r in (44100, 96000, 32000, 88200, 16000):
+            if r not in rates_to_try:
+                rates_to_try.append(r)
+
+        def _try_open(target_id: int, channels: int, sr: int, extra: Any) -> Optional[sd.InputStream]:
+            try:
+                stream = sd.InputStream(
+                    device=target_id,
+                    channels=channels,
+                    samplerate=sr,
+                    blocksize=BLOCK_SIZE,
+                    dtype=DTYPE,
+                    callback=callback,
+                    extra_settings=extra
+                )
+                stream.start()
+                return stream
+            except Exception as ex:
+                logger.debug("Failed opening stream (dev=%s, sr=%d, ch=%d): %s", target_id, sr, channels, ex)
+                return None
+
+        # Tier 1: Try requested device with candidate sample rates
+        for sr in rates_to_try:
+            stream = _try_open(dev_id, input_channels, sr, extra_settings)
+            if stream is not None:
+                if sr != SAMPLE_RATE:
+                    logger.warning("Adaptive sample rate active on device #%d '%s': hardware is %d Hz (resampling in real time to 48,000 Hz)",
+                                   dev_id, dev_info.get("name"), sr)
+                else:
+                    logger.info("Resilient Stream opened on device #%d '%s' at 48,000 Hz", dev_id, dev_info.get("name"))
+                return stream, dev_id, sr, ""
+
+        # Tier 2: Multi-Tier Host API Fallback (Windows only)
+        if is_windows and not is_wasapi_loopback:
+            try:
+                all_inputs, _ = self.get_audio_devices()
+                base_name = dev_info.get("name", "").split("(")[0].strip().lower()
+                for alt_dev in all_inputs:
+                    if alt_dev["id"] == dev_id:
+                        continue
+                    alt_name = alt_dev.get("name", "").split("(")[0].strip().lower()
+                    if base_name in alt_name or alt_name in base_name:
+                        alt_id = alt_dev["id"]
+                        alt_ch = min(2, alt_dev.get("channels", 1))
+                        if alt_ch < 1:
+                            continue
+                        logger.warning("Host API fallback: attempting '%s' (HostAPI: %s, ID: #%d)...",
+                                       alt_dev["name"], alt_dev.get("hostapi"), alt_id)
+                        for sr in rates_to_try:
+                            stream = _try_open(alt_id, alt_ch, sr, None)
+                            if stream is not None:
+                                logger.warning("Host API fallback SUCCESS on #%d '%s' at %d Hz",
+                                               alt_id, alt_dev.get("name"), sr)
+                                return stream, alt_id, sr, ""
+            except Exception as fb_err:
+                logger.debug("Host API fallback error: %s", fb_err)
+
+        # Tier 3: Fallback to System Default Recording Device
+        try:
+            default_id = sd.default.device[0]
+            if default_id is not None and default_id >= 0 and default_id != dev_id:
+                def_info = sd.query_devices(default_id)
+                def_ch = min(2, def_info.get("max_input_channels", 0))
+                if def_ch >= 1:
+                    logger.warning("Default device fallback: attempting OS Default #%d '%s'...",
+                                   default_id, def_info.get("name"))
+                    for sr in rates_to_try:
+                        stream = _try_open(default_id, def_ch, sr, None)
+                        if stream is not None:
+                            logger.warning("OS Default fallback SUCCESS on #%d '%s' at %d Hz",
+                                           default_id, def_info.get("name"), sr)
+                            return stream, default_id, sr, ""
+        except Exception as def_err:
+            logger.debug("Default device fallback error: %s", def_err)
+
+        return None, dev_id, SAMPLE_RATE, f"Unable to open audio stream on device '{dev_info.get('name')}' or any fallback."
+
     def start_input_stream(self) -> bool:
-        """Starts or restarts the always-on input stream."""
+        """Starts or restarts the always-on input stream with multi-tier resilience."""
         self.stop_input_stream()
         
         saved_name = self.config.get("input_device_name", "")
@@ -404,44 +566,23 @@ class AudioEngine:
             return False
 
         dev_id = source["id"]
-        try:
-            dev_info = sd.query_devices(dev_id)
-            import platform
-            is_wasapi_loopback = False
-            if platform.system() == "Windows" and (source.get("is_wasapi_loopback") or dev_info.get("max_input_channels", 0) == 0):
-                is_wasapi_loopback = True
-
-            if is_wasapi_loopback:
-                input_channels = min(2, dev_info.get("max_output_channels", 2))
-                extra_settings = sd.WasapiSettings(loopback=True)
-            else:
-                input_channels = min(2, dev_info.get("max_input_channels", 0))
-                extra_settings = None
-
-            if input_channels < 1:
-                raise ValueError("Selected device has 0 input channels.")
-                
-            self.current_input_device_id = dev_id
-            self.input_stream = sd.InputStream(
-                device=dev_id,
-                channels=input_channels,
-                samplerate=SAMPLE_RATE,
-                blocksize=BLOCK_SIZE,
-                dtype=DTYPE,
-                callback=self._audio_input_callback,
-                extra_settings=extra_settings
-            )
-            self.input_stream.start()
+        stream, actual_id, actual_rate, err_msg = self._open_input_stream_resilient(
+            dev_id=dev_id,
+            source=source,
+            callback=self._audio_input_callback
+        )
+        if stream is not None:
+            self.input_stream = stream
+            self.current_input_device_id = actual_id
+            self.input_stream_rate = actual_rate
             self.is_stream_active = True
             self.device_error_state = False
             self.device_error_message = ""
-            logger.info("Always-On Input Stream started on device #%d: '%s' (HostAPI: %s, Loopback: %s)",
-                        dev_id, dev_info["name"], dev_info.get("hostapi", "Unknown"), is_wasapi_loopback)
             return True
-        except Exception as e:
+        else:
             self.device_error_state = True
-            self.device_error_message = f"Audio Input Error: {str(e)}"
-            logger.error("Failed to start audio input stream on device #%s: %s", dev_id, e)
+            self.device_error_message = err_msg or "Failed to start audio input stream."
+            logger.error("Failed to start audio input stream on device #%s: %s", dev_id, self.device_error_message)
             self.input_stream = None
             self.is_stream_active = False
             return False
@@ -513,7 +654,14 @@ class AudioEngine:
 
         if source is None or source.get("id") == self.current_input_device_id:
             sources = self.get_unified_audio_sources()
-            candidates = [s for s in sources if s.get("id") != self.current_input_device_id and not s.get("is_setup_needed", False)]
+            candidates = [
+                s for s in sources 
+                if s.get("id") != self.current_input_device_id 
+                and not s.get("is_setup_needed", False) 
+                and not is_virtual_dummy(s.get("name", ""))
+            ]
+            if not candidates:
+                candidates = [s for s in sources if s.get("id") != self.current_input_device_id and not s.get("is_setup_needed", False)]
             if candidates:
                 source = candidates[0]
             elif sources:
@@ -526,44 +674,23 @@ class AudioEngine:
             return False
 
         dev_id = source["id"]
-        try:
-            dev_info = sd.query_devices(dev_id)
-            import platform
-            is_wasapi_loopback = False
-            if platform.system() == "Windows" and (source.get("is_wasapi_loopback") or dev_info.get("max_input_channels", 0) == 0):
-                is_wasapi_loopback = True
-
-            if is_wasapi_loopback:
-                input_channels = min(2, dev_info.get("max_output_channels", 2))
-                extra_settings = sd.WasapiSettings(loopback=True)
-            else:
-                input_channels = min(2, dev_info.get("max_input_channels", 0))
-                extra_settings = None
-
-            if input_channels < 1:
-                raise ValueError("Selected secondary device has 0 input channels.")
-
-            self.current_secondary_device_id = dev_id
-            self.secondary_input_stream = sd.InputStream(
-                device=dev_id,
-                channels=input_channels,
-                samplerate=SAMPLE_RATE,
-                blocksize=BLOCK_SIZE,
-                dtype=DTYPE,
-                callback=self._secondary_audio_input_callback,
-                extra_settings=extra_settings
-            )
-            self.secondary_input_stream.start()
+        stream, actual_id, actual_rate, err_msg = self._open_input_stream_resilient(
+            dev_id=dev_id,
+            source=source,
+            callback=self._secondary_audio_input_callback
+        )
+        if stream is not None:
+            self.secondary_input_stream = stream
+            self.current_secondary_device_id = actual_id
+            self.secondary_stream_rate = actual_rate
             self.is_secondary_stream_active = True
             self.secondary_device_error_state = False
             self.secondary_device_error_message = ""
-            logger.info("Secondary Stream started on device #%d: '%s' (HostAPI: %s, Loopback: %s)",
-                        dev_id, dev_info["name"], dev_info.get("hostapi", "Unknown"), is_wasapi_loopback)
             return True
-        except Exception as e:
+        else:
             self.secondary_device_error_state = True
-            self.secondary_device_error_message = f"Secondary Audio Input Error: {str(e)}"
-            logger.error("Failed to start secondary audio input stream on device #%s: %s", dev_id, e)
+            self.secondary_device_error_message = err_msg or "Failed to start secondary audio input stream."
+            logger.error("Failed to start secondary audio input stream on device #%s: %s", dev_id, self.secondary_device_error_message)
             self.secondary_input_stream = None
             self.is_secondary_stream_active = False
             return False
@@ -609,6 +736,17 @@ class AudioEngine:
             buffer = np.repeat(indata, 2, axis=1)
         else:
             buffer = indata.copy()
+
+        # Adaptive real-time resampling if primary hardware sample rate != 48,000 Hz
+        if self.input_stream_rate != SAMPLE_RATE and self.input_stream_rate > 0:
+            orig_len = buffer.shape[0]
+            target_len = int(round(orig_len * (SAMPLE_RATE / self.input_stream_rate)))
+            if target_len > 0 and target_len != orig_len:
+                x_orig = np.linspace(0.0, 1.0, orig_len, endpoint=False)
+                x_new = np.linspace(0.0, 1.0, target_len, endpoint=False)
+                res_l = np.interp(x_new, x_orig, buffer[:, 0]).astype(np.float32)
+                res_r = np.interp(x_new, x_orig, buffer[:, 1]).astype(np.float32)
+                buffer = np.column_stack((res_l, res_r))
 
         # --- Real-Time DSP Pipeline ---
         if self.mono_sum:
@@ -690,6 +828,17 @@ class AudioEngine:
             buffer = np.repeat(indata, 2, axis=1)
         else:
             buffer = indata.copy()
+
+        # Adaptive real-time resampling if secondary hardware sample rate != 48,000 Hz
+        if self.secondary_stream_rate != SAMPLE_RATE and self.secondary_stream_rate > 0:
+            orig_len = buffer.shape[0]
+            target_len = int(round(orig_len * (SAMPLE_RATE / self.secondary_stream_rate)))
+            if target_len > 0 and target_len != orig_len:
+                x_orig = np.linspace(0.0, 1.0, orig_len, endpoint=False)
+                x_new = np.linspace(0.0, 1.0, target_len, endpoint=False)
+                res_l = np.interp(x_new, x_orig, buffer[:, 0]).astype(np.float32)
+                res_r = np.interp(x_new, x_orig, buffer[:, 1]).astype(np.float32)
+                buffer = np.column_stack((res_l, res_r))
 
         # Live dBFS Peak & RMS Level Metering
         l_peak = np.max(np.abs(buffer[:, 0]))
@@ -1413,12 +1562,11 @@ class AudioEngine:
         while True:
             time.sleep(5.0)
             if not self.is_stream_active or self.device_error_state:
-                if not self.is_recording:
-                    try:
-                        sd._terminate()
-                        sd._initialize()
-                    except Exception:
-                        pass
+                try:
+                    sd._terminate()
+                    sd._initialize()
+                except Exception as e:
+                    logger.debug("PortAudio watchdog reinit notice: %s", e)
                 logger.info("Device Watchdog: Attempting audio stream reconnect...")
                 success = self.start_input_stream()
                 if success:
