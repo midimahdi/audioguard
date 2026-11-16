@@ -1624,7 +1624,8 @@ class AudioGuardApp:
             anchor="w"
         ).pack(fill="x", pady=(0, 4))
 
-        input_names = [d["display_name"] for d in self.input_devices_cache] if self.input_devices_cache else ["Default Audio Device"]
+        sources = getattr(self, "unified_sources_cache", None) or self.audio.get_unified_audio_sources()
+        input_names = [d["display_name"] for d in sources] if sources else ["Default Audio Device"]
         cur_dev = self.input_device_combo.get() if hasattr(self, "input_device_combo") else input_names[0]
         if cur_dev not in input_names and input_names:
             cur_dev = input_names[0]
