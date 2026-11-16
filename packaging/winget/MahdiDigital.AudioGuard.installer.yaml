@@ -1,0 +1,23 @@
+PackageIdentifier: MahdiDigital.AudioGuard
+PackageVersion: 1.5.5
+Platform:
+  - Windows.Desktop
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+Installers:
+  - Architecture: x64
+    InstallerType: inno
+    Scope: user
+    InstallerUrl: https://github.com/midimahdi/audioguard/releases/download/v1.5.5/AudioGuard-Setup-x64.exe
+    InstallerSha256: adb22daf0647f55b0cb7b14420956caf1c23bc4b7eb792b3f7d1c0f77aed5bc2
+    UpgradeBehavior: install
+  - Architecture: x86
+    InstallerType: inno
+    Scope: user
+    InstallerUrl: https://github.com/midimahdi/audioguard/releases/download/v1.5.5/AudioGuard-Setup-x86.exe
+    InstallerSha256: c45519c6e1cdd988b8a20183f6497e20ddb3ea85ce709ac182350508cb40e2b2
+    UpgradeBehavior: install
+ManifestType: installer
+ManifestVersion: 1.6.0
