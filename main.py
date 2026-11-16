@@ -20,6 +20,7 @@ import socket
 import argparse
 import threading
 import subprocess
+import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -33,7 +34,8 @@ from config_manager import (
     is_autostart_enabled, set_autostart,
     SingleInstanceLock, get_free_disk_space_gb, get_disk_safety_floors,
     cleanup_old_backups, list_available_profiles, delete_profile,
-    create_desktop_shortcut, get_default_backup_folder
+    create_desktop_shortcut, get_default_backup_folder,
+    APP_VERSION, check_for_github_update
 )
 from audio_engine import AudioEngine
 from scheduler import SchedulerEngine
@@ -188,6 +190,7 @@ class AudioGuardApp:
         self._meter_ui_tick()
         self._timer_ui_tick()
         self.root.after(300, self._check_first_run_onboarding)
+        self.root.after(5000, self._start_background_update_check)
 
         # Intercept window close button (volunteer-proof hide to tray / Dock)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close_button_clicked)
@@ -283,6 +286,81 @@ class AudioGuardApp:
     # -------------------------------------------------------------
     def _build_dashboard_view(self):
         self.dashboard_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+
+        # 0. Update Notification Banner (Hidden until newer version detected)
+        self.update_banner = ctk.CTkFrame(
+            self.dashboard_frame,
+            fg_color="#182232",
+            corner_radius=8,
+            border_width=1,
+            border_color="#3B82F6"
+        )
+        self._update_banner_packed = False
+        self._latest_release_info: Optional[Dict[str, Any]] = None
+
+        update_inner = ctk.CTkFrame(self.update_banner, fg_color="transparent")
+        update_inner.pack(fill="x", padx=14, pady=10)
+
+        update_text_frame = ctk.CTkFrame(update_inner, fg_color="transparent")
+        update_text_frame.pack(side="left", fill="both", expand=True)
+
+        self.update_banner_title = ctk.CTkLabel(
+            update_text_frame,
+            text="",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#60A5FA",
+            anchor="w"
+        )
+        self.update_banner_title.pack(fill="x")
+
+        self.update_banner_sub = ctk.CTkLabel(
+            update_text_frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=COLOR_TEXT_MUTED,
+            anchor="w"
+        )
+        self.update_banner_sub.pack(fill="x", pady=(2, 0))
+
+        update_actions_frame = ctk.CTkFrame(update_inner, fg_color="transparent")
+        update_actions_frame.pack(side="right", padx=(10, 0))
+
+        self.btn_download_update = ctk.CTkButton(
+            update_actions_frame,
+            text=t("btn_download_update"),
+            width=130,
+            height=28,
+            fg_color="#2563EB",
+            hover_color="#1D4ED8",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            command=self._on_click_download_update
+        )
+        self.btn_download_update.pack(side="left", padx=(0, 6))
+
+        self.btn_release_notes = ctk.CTkButton(
+            update_actions_frame,
+            text=t("btn_release_notes"),
+            width=85,
+            height=28,
+            fg_color="#2A2A30",
+            hover_color=COLOR_PANEL_BORDER,
+            font=ctk.CTkFont(size=11),
+            command=self._on_click_release_notes
+        )
+        self.btn_release_notes.pack(side="left", padx=(0, 6))
+
+        self.btn_dismiss_update = ctk.CTkButton(
+            update_actions_frame,
+            text="✕",
+            width=28,
+            height=28,
+            fg_color="transparent",
+            hover_color="#374151",
+            text_color=COLOR_TEXT_MUTED,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            command=self._on_dismiss_update_banner
+        )
+        self.btn_dismiss_update.pack(side="left")
 
         # 1. Status Banner
         self.status_banner = ctk.CTkFrame(
@@ -888,6 +966,38 @@ class AudioGuardApp:
             command=self.on_open_log_file
         )
         self.open_log_btn.pack(side="left")
+
+        # Version & Updates action row
+        update_row = ctk.CTkFrame(opts_frame, fg_color="transparent")
+        update_row.pack(fill="x", pady=(8, 0))
+
+        self.version_lbl = ctk.CTkLabel(
+            update_row,
+            text=f"v{APP_VERSION}",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.version_lbl.pack(side="left", padx=(0, 10))
+
+        self.btn_check_update_manual = ctk.CTkButton(
+            update_row,
+            text=t("btn_check_updates"),
+            width=160,
+            height=28,
+            fg_color="#2A2A30",
+            hover_color=COLOR_PANEL_BORDER,
+            font=ctk.CTkFont(size=11),
+            command=self.on_manual_check_updates
+        )
+        self.btn_check_update_manual.pack(side="left", padx=(0, 10))
+
+        self.update_status_lbl = ctk.CTkLabel(
+            update_row,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.update_status_lbl.pack(side="left")
 
         # Section 5: Audio Profiles (Multi-Tenancy / Second Audio Input)
         self.sec_prof_lbl = ctk.CTkLabel(
@@ -2311,6 +2421,16 @@ class AudioGuardApp:
             self.monitor_switch.configure(text=f"🎧 {t('opt_headphone')}")
         if hasattr(self, "open_log_btn"):
             self.open_log_btn.configure(text=t("btn_open_log"))
+        if hasattr(self, "btn_check_update_manual"):
+            self.btn_check_update_manual.configure(text=t("btn_check_updates"))
+        if hasattr(self, "btn_download_update"):
+            self.btn_download_update.configure(text=t("btn_download_update"))
+        if hasattr(self, "btn_release_notes"):
+            self.btn_release_notes.configure(text=t("btn_release_notes"))
+        if getattr(self, "_latest_release_info", None) and hasattr(self, "update_banner_title"):
+            v = self._latest_release_info.get("version", "")
+            self.update_banner_title.configure(text=t("update_banner_title", version=v))
+            self.update_banner_sub.configure(text=t("update_banner_sub"))
 
         # Settings View - Section 5 (Audio Profiles)
         if hasattr(self, "sec_prof_lbl"):
@@ -2389,6 +2509,102 @@ class AudioGuardApp:
             except Exception:
                 pass
         self.root.after(0, _restore)
+
+    # -------------------------------------------------------------
+    # In-App Update Management & Background Checker
+    # -------------------------------------------------------------
+    def _show_update_banner(self, release_info: Dict[str, Any]):
+        """Displays non-intrusive update notification above status banner if not actively recording."""
+        if getattr(self, "audio", None) and self.audio.is_recording:
+            # Postpone check while recording to never distract operator
+            self.root.after(15000, lambda: self._show_update_banner(release_info))
+            return
+
+        self._latest_release_info = release_info
+        version_str = release_info.get("version", "")
+        self.update_banner_title.configure(text=t("update_banner_title", version=version_str))
+        self.update_banner_sub.configure(text=t("update_banner_sub"))
+
+        if not self._update_banner_packed:
+            self.update_banner.pack(fill="x", pady=(0, 10), before=self.status_banner)
+            self._update_banner_packed = True
+
+    def _on_dismiss_update_banner(self):
+        """Hides update banner when user clicks dismiss button."""
+        if self._update_banner_packed:
+            self.update_banner.pack_forget()
+            self._update_banner_packed = False
+
+    def _on_click_download_update(self):
+        """Opens direct download URL for latest setup asset or release page."""
+        if self._latest_release_info and self._latest_release_info.get("download_url"):
+            webbrowser.open(self._latest_release_info["download_url"])
+
+    def _on_click_release_notes(self):
+        """Opens GitHub release notes in default browser."""
+        if self._latest_release_info and self._latest_release_info.get("release_url"):
+            webbrowser.open(self._latest_release_info["release_url"])
+
+    def _start_background_update_check(self):
+        """Checks GitHub for updates in a background thread if 24 hours have elapsed since last check."""
+        now = time.time()
+        last_check = float(self.config.get("last_update_check_ts", 0.0) or 0.0)
+        # Throttled to max 1 background check every 24 hours
+        if (now - last_check) < 86400:
+            logger.debug("Skipping background update check: checked %.1f hours ago", (now - last_check) / 3600)
+            return
+
+        def _worker():
+            try:
+                status, data = check_for_github_update(APP_VERSION)
+                if status in ("update_available", "up_to_date"):
+                    self.config.set("last_update_check_ts", now)
+
+                if status == "update_available" and data:
+                    logger.info("Newer AudioGuard version found on GitHub: %s", data.get("version"))
+                    self.root.after(0, lambda: self._show_update_banner(data))
+            except Exception as e:
+                logger.debug("Background update check error: %s", e)
+
+        th = threading.Thread(target=_worker, daemon=True, name="UpdateCheckerThread")
+        th.start()
+
+    def on_manual_check_updates(self):
+        """Manual update check triggered from Settings."""
+        if hasattr(self, "btn_check_update_manual"):
+            self.btn_check_update_manual.configure(state="disabled")
+        if hasattr(self, "update_status_lbl"):
+            self.update_status_lbl.configure(text=t("msg_checking_updates"), text_color=COLOR_TEXT_MUTED)
+
+        def _worker():
+            status, data = check_for_github_update(APP_VERSION)
+            def _ui_update():
+                if hasattr(self, "btn_check_update_manual"):
+                    self.btn_check_update_manual.configure(state="normal")
+                if status == "update_available" and data:
+                    v = data.get("version", "")
+                    if hasattr(self, "update_status_lbl"):
+                        self.update_status_lbl.configure(
+                            text=t("msg_update_found", version=v),
+                            text_color="#60A5FA"
+                        )
+                    self._show_update_banner(data)
+                elif status == "up_to_date":
+                    v = data.get("version", f"v{APP_VERSION}") if data else f"v{APP_VERSION}"
+                    if hasattr(self, "update_status_lbl"):
+                        self.update_status_lbl.configure(
+                            text=t("msg_up_to_date", version=v),
+                            text_color=COLOR_GREEN
+                        )
+                else:
+                    if hasattr(self, "update_status_lbl"):
+                        self.update_status_lbl.configure(
+                            text=t("msg_check_failed"),
+                            text_color=COLOR_AMBER
+                        )
+            self.root.after(0, _ui_update)
+
+        threading.Thread(target=_worker, daemon=True, name="ManualUpdateChecker").start()
 
     def admin_quit(self):
         """Admin Quit with confirmation dialog."""

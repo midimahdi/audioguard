@@ -151,7 +151,21 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "onboard_mode_manual": "Manual Only (Record on-demand with Start/Stop button)",
         "onboard_mode_auto": "Automated Daily Schedule (Record automatically at specific times)",
         "onboard_storage": "3. Backup Storage Directory:",
-        "onboard_btn_finish": "Save & Launch AudioGuard"
+        "onboard_btn_finish": "Save & Launch AudioGuard",
+
+        # Update Notifications & Checker
+        "update_banner_title": "🚀 Update Available: {version}",
+        "update_banner_sub": "A newer release of AudioGuard is available. Click below to download.",
+        "btn_download_update": "📥 Download Update",
+        "btn_release_notes": "What's New",
+        "btn_dismiss_update": "✕",
+        "sec_app_version": "Application Version:",
+        "lbl_current_version": "Installed: {version}",
+        "btn_check_updates": "🔄 Check for Updates",
+        "msg_checking_updates": "Checking GitHub for updates...",
+        "msg_up_to_date": "AudioGuard is up to date ({version}).",
+        "msg_update_found": "A new version ({version}) is available!",
+        "msg_check_failed": "Could not connect to GitHub to check for updates."
     },
 
     "ar": {
@@ -292,7 +306,21 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "onboard_mode_manual": "يدوي فقط (تسجيل عند الطلب بزر البدء/الإيقاف)",
         "onboard_mode_auto": "جدولة يومية آلية (تسجيل تلقائي في أوقات محددة)",
         "onboard_storage": "3. مجلد حفظ النسخ الاحتياطية:",
-        "onboard_btn_finish": "حفظ وتشغيل AudioGuard"
+        "onboard_btn_finish": "حفظ وتشغيل AudioGuard",
+
+        # Update Notifications & Checker
+        "update_banner_title": "🚀 تحديث جديد متوفر: {version}",
+        "update_banner_sub": "يتوفر إصدار جديد من AudioGuard. انقر أدناه للتحميل.",
+        "btn_download_update": "📥 تحميل التحديث",
+        "btn_release_notes": "ما الجديد",
+        "btn_dismiss_update": "✕",
+        "sec_app_version": "إصدار التطبيق:",
+        "lbl_current_version": "الإصدار المثبت: {version}",
+        "btn_check_updates": "🔄 التحقق من وجود تحديثات",
+        "msg_checking_updates": "جارٍ التحقق من التحديثات...",
+        "msg_up_to_date": "AudioGuard محدث إلى آخر إصدار ({version}).",
+        "msg_update_found": "يتوفر إصدار جديد ({version})!",
+        "msg_check_failed": "تعذر الاتصال بـ GitHub للتحقق من التحديثات."
     },
 
     "fr": {
@@ -433,7 +461,21 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "onboard_mode_manual": "Manuel uniquement (Enregistrement avec bouton Marche/Arrêt)",
         "onboard_mode_auto": "Planification quotidienne automatique (Enregistrement à heures fixes)",
         "onboard_storage": "3. Répertoire de sauvegarde :",
-        "onboard_btn_finish": "Enregistrer et lancer AudioGuard"
+        "onboard_btn_finish": "Enregistrer et lancer AudioGuard",
+
+        # Update Notifications & Checker
+        "update_banner_title": "🚀 Mise à jour disponible : {version}",
+        "update_banner_sub": "Une nouvelle version d'AudioGuard est disponible. Cliquez ci-dessous pour télécharger.",
+        "btn_download_update": "📥 Télécharger la mise à jour",
+        "btn_release_notes": "Nouveautés",
+        "btn_dismiss_update": "✕",
+        "sec_app_version": "Version de l'application :",
+        "lbl_current_version": "Installée : {version}",
+        "btn_check_updates": "🔄 Rechercher des mises à jour",
+        "msg_checking_updates": "Vérification des mises à jour sur GitHub...",
+        "msg_up_to_date": "AudioGuard est à jour ({version}).",
+        "msg_update_found": "Une nouvelle version ({version}) est disponible !",
+        "msg_check_failed": "Impossible de contacter GitHub pour vérifier les mises à jour."
     }
 }
 

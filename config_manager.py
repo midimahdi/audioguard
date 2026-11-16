@@ -5,14 +5,18 @@ AudioGuard - Configuration, Persistence, Startup & Retention Manager
 from __future__ import annotations
 import os
 import sys
+import re
 import json
 import shutil
 import logging
 from logging.handlers import RotatingFileHandler
 import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
+
+APP_VERSION = "1.5.4"
 
 # Logger setup
 logger = logging.getLogger("AudioGuard")
@@ -90,7 +94,8 @@ DEFAULT_CONFIG = {
     "retention_days": 30,
     "auto_start_on_boot": True,
     "monitoring_enabled": False,
-    "language": "en"
+    "language": "en",
+    "last_update_check_ts": 0.0
 }
 
 def get_recording_subfolder(base_folder: str, folder_grouping: str = "monthly", dt=None) -> Path:
@@ -1074,3 +1079,70 @@ def get_free_disk_space_gb(path_str: str) -> float:
     """Returns the free disk space in Gigabytes for the specified path."""
     _, _, free_gb = get_disk_capacity_gb(path_str)
     return free_gb
+
+def parse_version_tuple(v_str: str) -> Tuple[int, ...]:
+    """Extracts numeric tuple from version strings like 'v1.5.4' or '1.5.4.1' -> (1, 5, 4)."""
+    cleaned = re.sub(r'^[^\d]*', '', str(v_str))
+    nums = [int(p) for p in re.split(r'[^0-9]+', cleaned) if p.isdigit()]
+    while len(nums) < 3:
+        nums.append(0)
+    return tuple(nums) if nums else (0, 0, 0)
+
+def check_for_github_update(current_version: str = APP_VERSION, timeout: float = 4.0) -> Tuple[str, Optional[Dict[str, Any]]]:
+    """
+    Queries GitHub Releases API for the latest release of midimahdi/audioguard.
+    Returns:
+      ("update_available", release_info_dict) if a newer version is published.
+      ("up_to_date", {"version": latest_tag}) if current_version >= latest_tag.
+      ("error", {"error": str(e)}) if network fails or offline.
+    """
+    url = "https://api.github.com/repos/midimahdi/audioguard/releases/latest"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": f"AudioGuard/{current_version} (Automated Update Checker; Python)",
+            "Accept": "application/vnd.github.v3+json"
+        }
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status != 200:
+                return "error", {"error": f"HTTP {resp.status}"}
+            data = json.loads(resp.read().decode("utf-8"))
+
+        latest_tag = data.get("tag_name", "").strip()
+        if not latest_tag:
+            return "error", {"error": "Missing tag_name"}
+
+        curr_tuple = parse_version_tuple(current_version)
+        latest_tuple = parse_version_tuple(latest_tag)
+
+        if latest_tuple > curr_tuple:
+            assets = data.get("assets", [])
+            download_url = data.get("html_url", f"https://github.com/midimahdi/audioguard/releases/tag/{latest_tag}")
+            target_asset_name = "AudioGuard-Setup-x64.exe" if sys.platform == "win32" else ""
+
+            for asset in assets:
+                name = asset.get("name", "")
+                if target_asset_name and name.lower() == target_asset_name.lower():
+                    download_url = asset.get("browser_download_url", download_url)
+                    break
+
+            body = data.get("body", "") or ""
+            if len(body) > 300:
+                body = body[:297] + "..."
+
+            return "update_available", {
+                "version": latest_tag,
+                "current_version": current_version,
+                "release_url": data.get("html_url", f"https://github.com/midimahdi/audioguard/releases/tag/{latest_tag}"),
+                "download_url": download_url,
+                "body": body,
+                "published_at": data.get("published_at", "")
+            }
+        else:
+            return "up_to_date", {"version": latest_tag}
+    except Exception as e:
+        logger.debug("Update check failed (expected if offline): %s", e)
+        return "error", {"error": str(e)}
+
