@@ -58,7 +58,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "btn_refresh": "Refresh",
         "btn_scanning": "Scanning...",
         "btn_refreshed": "Updated",
-        "sec_secondary_track": "Secondary Audio Track (Track 2):",
+        "btn_add_audio_source": "Add Audio Source",
+        "btn_remove_source": "Remove",
+        "sec_secondary_track": "Secondary Audio Source (Track 2):",
         "opt_enable_secondary": "Enable Secondary Audio Track (Podcasts & Streams)",
         "lbl_source_type": "Source Type:",
         "opt_desktop_audio": "Desktop Audio (Loopback)",
@@ -67,6 +69,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "opt_separate_files": "Separate Files (_track1 & _track2)",
         "opt_single_multitrack": "Single Multitrack File (4-Channel FLAC)",
         "sec_meter_title": "Secondary Level (Track 2):",
+        "lbl_track1_level": "Audio Source 1 Level",
+        "lbl_track2_level": "Audio Source 2 Level",
 
         # Settings Section 2: Schedules
         "sec_schedules": "Automated Daily Recording Schedules:",
@@ -226,7 +230,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "btn_refresh": "تحديث",
         "btn_scanning": "جارٍ البحث...",
         "btn_refreshed": "تم التحديث",
-        "sec_secondary_track": "المسار الصوتي الثانوي (المسار 2):",
+        "btn_add_audio_source": "إضافة مصدر صوت",
+        "btn_remove_source": "إزالة",
+        "sec_secondary_track": "مصدر الصوت الثانوي (المسار 2):",
         "opt_enable_secondary": "تفعيل المسار الصوتي الثانوي (للبودكاست والبث المباشر)",
         "lbl_source_type": "نوع المصدر:",
         "opt_desktop_audio": "صوت الجهاز (Loopback)",
@@ -235,6 +241,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "opt_separate_files": "ملفات منفصلة (Track 1 و Track 2)",
         "opt_single_multitrack": "ملف موحد متعدد المسارات (FLAC بـ 4 قنوات)",
         "sec_meter_title": "مستوى المسار الثانوي (المسار 2):",
+        "lbl_track1_level": "مستوى مصدر الصوت 1",
+        "lbl_track2_level": "مستوى مصدر الصوت 2",
 
         # Settings Section 2: Schedules
         "sec_schedules": "جداول التسجيل الآلي اليومية:",
@@ -394,7 +402,9 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "btn_refresh": "Actualiser",
         "btn_scanning": "Recherche...",
         "btn_refreshed": "Actualisé",
-        "sec_secondary_track": "Piste audio secondaire (Piste 2) :",
+        "btn_add_audio_source": "Ajouter une source audio",
+        "btn_remove_source": "Supprimer",
+        "sec_secondary_track": "Source audio secondaire (Piste 2) :",
         "opt_enable_secondary": "Activer la piste audio secondaire (Podcasts & Streams)",
         "lbl_source_type": "Type de source :",
         "opt_desktop_audio": "Audio du système (Loopback)",
@@ -403,6 +413,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "opt_separate_files": "Fichiers séparés (_track1 et _track2)",
         "opt_single_multitrack": "Fichier multipiste unique (FLAC 4 canaux)",
         "sec_meter_title": "Niveau secondaire (Piste 2) :",
+        "lbl_track1_level": "Niveau source audio 1",
+        "lbl_track2_level": "Niveau source audio 2",
 
         # Settings Section 2: Schedules
         "sec_schedules": "Horaires d'enregistrement quotidien :",

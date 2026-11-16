@@ -195,25 +195,124 @@ class AudioEngine:
         return inputs
 
     @staticmethod
-    def get_secondary_audio_devices(source_type: str = "desktop") -> List[Dict[str, Any]]:
+    def get_unified_audio_sources() -> List[Dict[str, Any]]:
         """
-        Enumerates devices available for Track 2.
-        When source_type == 'desktop', prioritizes loopback / stereo mix / virtual cable devices.
-        When source_type == 'input', provides all hardware audio input devices.
+        Enumerates all available audio sources into a single unified list:
+        - Physical & virtual hardware inputs (Microphones, Mixers, Camo, etc.)
+        - Desktop Audio (Loopback from System / Speakers)
         """
-        inputs, _ = AudioEngine.get_audio_devices()
-        if not inputs:
-            return []
+        inputs, outputs = AudioEngine.get_audio_devices()
+        sources: List[Dict[str, Any]] = []
 
         loopback_keywords = (
-            "stereo mix", "wave out", "what u hear", "loopback", "cable",
-            "virtual", "voicemeeter", "wavelink", "blackhole", "monitor"
+            "blackhole", "soundflower", "loopback", "stereo mix",
+            "wave out", "what u hear", "voicemeeter", "wavelink"
         )
-        if source_type == "desktop":
-            loopbacks = [d for d in inputs if any(k in d["name"].lower() for k in loopback_keywords)]
-            others = [d for d in inputs if not any(k in d["name"].lower() for k in loopback_keywords)]
-            return loopbacks + others
-        return inputs
+
+        # 1. Add all physical & virtual inputs
+        for dev in inputs:
+            d_copy = dict(dev)
+            lower = d_copy["name"].lower()
+            if any(k in lower for k in loopback_keywords):
+                d_copy["display_name"] = f"Desktop Audio ({d_copy['name']})"
+                d_copy["is_desktop_audio"] = True
+            sources.append(d_copy)
+
+        # 2. Check if desktop audio is already represented
+        has_loopback = any(d.get("is_desktop_audio", False) for d in sources)
+
+        import platform
+        os_name = platform.system()
+
+        if not has_loopback:
+            if os_name == "Darwin":
+                # macOS without virtual loopback driver installed
+                sources.append({
+                    "id": -99,
+                    "name": "Desktop Audio (Setup BlackHole...)",
+                    "display_name": "Desktop Audio (Setup BlackHole...)",
+                    "hostapi": "Core Audio",
+                    "channels": 2,
+                    "default_samplerate": 48000,
+                    "is_desktop_audio": True,
+                    "is_setup_needed": True
+                })
+            elif os_name == "Windows":
+                # Windows WASAPI loopback on default output / speakers
+                out_id = None
+                try:
+                    out_id = sd.default.device[1]
+                except Exception:
+                    pass
+                if out_id is None and outputs:
+                    out_id = outputs[0]["id"]
+                
+                sources.append({
+                    "id": out_id if out_id is not None else -100,
+                    "name": "Desktop Audio (System Output)",
+                    "display_name": "Desktop Audio (System Output)",
+                    "hostapi": "Windows WASAPI",
+                    "channels": 2,
+                    "default_samplerate": 48000,
+                    "is_desktop_audio": True,
+                    "is_wasapi_loopback": True
+                })
+            else:
+                sources.append({
+                    "id": -101,
+                    "name": "Desktop Audio (Monitor)",
+                    "display_name": "Desktop Audio (Monitor)",
+                    "hostapi": "ALSA",
+                    "channels": 2,
+                    "default_samplerate": 48000,
+                    "is_desktop_audio": True
+                })
+
+        return sources
+
+    @staticmethod
+    def get_secondary_audio_devices(source_type: str = "desktop") -> List[Dict[str, Any]]:
+        """Backwards-compatible wrapper returning unified audio sources."""
+        return AudioEngine.get_unified_audio_sources()
+
+    def find_source_by_name(self, name_substr: str, hostapi_hint: str = "") -> Optional[Dict[str, Any]]:
+        """
+        Finds a unified source entry matching name or substring.
+        Falls back to the first available source if not found.
+        """
+        sources = self.get_unified_audio_sources()
+        if not sources:
+            return None
+
+        if not name_substr:
+            for s in sources:
+                if not s.get("is_setup_needed", False):
+                    return s
+            return sources[0]
+
+        name_lower = name_substr.lower().strip()
+        hostapi_lower = hostapi_hint.lower().strip()
+
+        # Pass 1: exact / substring match on name or display_name and hostapi
+        if hostapi_lower:
+            for s in sources:
+                s_name = s["name"].lower()
+                s_disp = s.get("display_name", "").lower()
+                if (name_lower in s_name or s_name in name_lower or name_lower in s_disp or s_disp in name_lower) and hostapi_lower in s.get("hostapi", "").lower():
+                    return s
+
+        # Pass 2: match on name or display_name only
+        for s in sources:
+            s_name = s["name"].lower()
+            s_disp = s.get("display_name", "").lower()
+            if name_lower in s_name or s_name in name_lower or name_lower in s_disp or s_disp in name_lower:
+                return s
+
+        # Pass 3: fallback to first working source
+        for s in sources:
+            if not s.get("is_setup_needed", False):
+                return s
+        return sources[0]
 
     def find_device_by_name(self, name_substr: str, is_input: bool = True, hostapi_hint: str = "") -> Optional[int]:
         """
@@ -296,17 +395,29 @@ class AudioEngine:
         
         saved_name = self.config.get("input_device_name", "")
         saved_hostapi = self.config.get("input_host_api", "")
-        dev_id = self.find_device_by_name(saved_name, is_input=True, hostapi_hint=saved_hostapi)
+        source = self.find_source_by_name(saved_name, hostapi_hint=saved_hostapi)
         
-        if dev_id is None:
+        if source is None or source.get("is_setup_needed", False):
             self.device_error_state = True
-            self.device_error_message = "No audio input device available on system."
-            logger.error(self.device_error_message)
+            self.device_error_message = "Desktop audio setup required." if (source and source.get("is_setup_needed")) else "No audio input device available on system."
+            logger.warning(self.device_error_message)
             return False
 
+        dev_id = source["id"]
         try:
             dev_info = sd.query_devices(dev_id)
-            input_channels = min(2, dev_info["max_input_channels"])
+            import platform
+            is_wasapi_loopback = False
+            if platform.system() == "Windows" and (source.get("is_wasapi_loopback") or dev_info.get("max_input_channels", 0) == 0):
+                is_wasapi_loopback = True
+
+            if is_wasapi_loopback:
+                input_channels = min(2, dev_info.get("max_output_channels", 2))
+                extra_settings = sd.WasapiSettings(loopback=True)
+            else:
+                input_channels = min(2, dev_info.get("max_input_channels", 0))
+                extra_settings = None
+
             if input_channels < 1:
                 raise ValueError("Selected device has 0 input channels.")
                 
@@ -317,14 +428,15 @@ class AudioEngine:
                 samplerate=SAMPLE_RATE,
                 blocksize=BLOCK_SIZE,
                 dtype=DTYPE,
-                callback=self._audio_input_callback
+                callback=self._audio_input_callback,
+                extra_settings=extra_settings
             )
             self.input_stream.start()
             self.is_stream_active = True
             self.device_error_state = False
             self.device_error_message = ""
-            logger.info("Always-On Input Stream started on device #%d: '%s' (HostAPI: %s)",
-                        dev_id, dev_info["name"], dev_info.get("hostapi", "Unknown"))
+            logger.info("Always-On Input Stream started on device #%d: '%s' (HostAPI: %s, Loopback: %s)",
+                        dev_id, dev_info["name"], dev_info.get("hostapi", "Unknown"), is_wasapi_loopback)
             return True
         except Exception as e:
             self.device_error_state = True
@@ -394,30 +506,40 @@ class AudioEngine:
 
         saved_name = self.config.get("secondary_device_name", "")
         saved_hostapi = self.config.get("secondary_host_api", "")
-        source_type = self.config.get("secondary_source_type", "desktop")
 
-        dev_id = None
+        source = None
         if saved_name:
-            dev_id = self.find_device_by_name(saved_name, is_input=True, hostapi_hint=saved_hostapi)
+            source = self.find_source_by_name(saved_name, hostapi_hint=saved_hostapi)
 
-        if dev_id is None:
-            sec_devices = self.get_secondary_audio_devices(source_type=source_type)
-            primary_id = self.current_input_device_id
-            candidates = [d for d in sec_devices if d["id"] != primary_id]
+        if source is None or source.get("id") == self.current_input_device_id:
+            sources = self.get_unified_audio_sources()
+            candidates = [s for s in sources if s.get("id") != self.current_input_device_id and not s.get("is_setup_needed", False)]
             if candidates:
-                dev_id = candidates[0]["id"]
-            elif sec_devices:
-                dev_id = sec_devices[0]["id"]
+                source = candidates[0]
+            elif sources:
+                source = sources[0]
 
-        if dev_id is None:
+        if source is None or source.get("is_setup_needed", False):
             self.secondary_device_error_state = True
-            self.secondary_device_error_message = "No secondary audio input device available."
+            self.secondary_device_error_message = "Desktop audio setup required." if (source and source.get("is_setup_needed")) else "No secondary audio device available."
             logger.warning(self.secondary_device_error_message)
             return False
 
+        dev_id = source["id"]
         try:
             dev_info = sd.query_devices(dev_id)
-            input_channels = min(2, dev_info["max_input_channels"])
+            import platform
+            is_wasapi_loopback = False
+            if platform.system() == "Windows" and (source.get("is_wasapi_loopback") or dev_info.get("max_input_channels", 0) == 0):
+                is_wasapi_loopback = True
+
+            if is_wasapi_loopback:
+                input_channels = min(2, dev_info.get("max_output_channels", 2))
+                extra_settings = sd.WasapiSettings(loopback=True)
+            else:
+                input_channels = min(2, dev_info.get("max_input_channels", 0))
+                extra_settings = None
+
             if input_channels < 1:
                 raise ValueError("Selected secondary device has 0 input channels.")
 
@@ -428,14 +550,15 @@ class AudioEngine:
                 samplerate=SAMPLE_RATE,
                 blocksize=BLOCK_SIZE,
                 dtype=DTYPE,
-                callback=self._secondary_audio_input_callback
+                callback=self._secondary_audio_input_callback,
+                extra_settings=extra_settings
             )
             self.secondary_input_stream.start()
             self.is_secondary_stream_active = True
             self.secondary_device_error_state = False
             self.secondary_device_error_message = ""
-            logger.info("Secondary Stream started on device #%d: '%s' (HostAPI: %s)",
-                        dev_id, dev_info["name"], dev_info.get("hostapi", "Unknown"))
+            logger.info("Secondary Stream started on device #%d: '%s' (HostAPI: %s, Loopback: %s)",
+                        dev_id, dev_info["name"], dev_info.get("hostapi", "Unknown"), is_wasapi_loopback)
             return True
         except Exception as e:
             self.secondary_device_error_state = True
