@@ -210,6 +210,34 @@ class AudioEngine:
         logger.warning("Device '%s' not found, falling back to: %s", name_substr, target_list[0]["display_name"])
         return target_list[0]["id"]
 
+    def rescan_devices(self) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Forces PortAudio to re-initialize its audio subsystem, discovering newly
+        connected USB microphones, mixer inputs, and hardware audio endpoints.
+        Safely pauses and restores the background stream if not recording.
+        """
+        was_active = self.is_stream_active and not self.is_recording
+        if was_active:
+            self.stop_input_stream()
+            if self.monitor_stream:
+                self.stop_monitor_stream()
+
+        try:
+            sd._terminate()
+            sd._initialize()
+            logger.info("PortAudio audio subsystem re-initialized for hardware rescan.")
+        except Exception as e:
+            logger.error("PortAudio re-initialization failed: %s", e)
+
+        inputs, outputs = self.get_audio_devices()
+
+        if was_active:
+            self.start_input_stream()
+            if self.config.get("monitoring_enabled", False):
+                self.start_monitor_stream()
+
+        return inputs, outputs
+
     # -------------------------------------------------------------
     # Stream Initialization & Reconnection
     # -------------------------------------------------------------
@@ -791,6 +819,12 @@ class AudioEngine:
         while True:
             time.sleep(5.0)
             if not self.is_stream_active or self.device_error_state:
+                if not self.is_recording:
+                    try:
+                        sd._terminate()
+                        sd._initialize()
+                    except Exception:
+                        pass
                 logger.info("Device Watchdog: Attempting audio stream reconnect...")
                 success = self.start_input_stream()
                 if success:

@@ -56,6 +56,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         # Settings Section 1: Audio Input Device
         "sec_audio_device": "Audio Input Device:",
         "btn_refresh": "Refresh",
+        "btn_scanning": "Scanning...",
+        "btn_refreshed": "Updated",
 
         # Settings Section 2: Schedules
         "sec_schedules": "Automated Daily Recording Schedules:",
@@ -211,6 +213,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         # Settings Section 1: Audio Input Device
         "sec_audio_device": "جهاز إدخال الصوت:",
         "btn_refresh": "تحديث",
+        "btn_scanning": "جارٍ البحث...",
+        "btn_refreshed": "تم التحديث",
 
         # Settings Section 2: Schedules
         "sec_schedules": "جداول التسجيل الآلي اليومية:",
@@ -366,6 +370,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         # Settings Section 1: Audio Input Device
         "sec_audio_device": "Périphérique d'entrée audio :",
         "btn_refresh": "Actualiser",
+        "btn_scanning": "Recherche...",
+        "btn_refreshed": "Actualisé",
 
         # Settings Section 2: Schedules
         "sec_schedules": "Horaires d'enregistrement quotidien :",

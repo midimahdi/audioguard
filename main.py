@@ -613,7 +613,7 @@ class AudioGuardApp:
             fg_color="#2A2A30",
             hover_color=COLOR_PANEL_BORDER,
             font=ctk.CTkFont(size=11),
-            command=self.refresh_devices_list
+            command=lambda: self.refresh_devices_list(force_rescan=True)
         )
         self.rescan_btn.pack(side="right")
 
@@ -2031,9 +2031,16 @@ class AudioGuardApp:
     # -------------------------------------------------------------
     # Audio Routing & Callbacks
     # -------------------------------------------------------------
-    def refresh_devices_list(self):
+    def refresh_devices_list(self, force_rescan: bool = False):
         """Enumerates deduplicated hardware audio devices."""
-        inputs, outputs = self.audio.get_audio_devices()
+        if force_rescan:
+            if hasattr(self, "rescan_btn"):
+                self.rescan_btn.configure(text=f"⏳ {t('btn_scanning')}", state="disabled")
+                self.root.update_idletasks()
+            inputs, outputs = self.audio.rescan_devices()
+        else:
+            inputs, outputs = self.audio.get_audio_devices()
+
         self.input_devices_cache = inputs
         self.output_devices_cache = outputs
 
@@ -2051,6 +2058,10 @@ class AudioGuardApp:
                     break
         self.input_device_combo.set(selected_in)
         self._update_dashboard_summary()
+
+        if force_rescan and hasattr(self, "rescan_btn"):
+            self.rescan_btn.configure(text=f"✓ {t('btn_refreshed')}", state="normal")
+            self.root.after(1000, lambda: self.rescan_btn.configure(text=f"🔄 {t('btn_refresh')}"))
 
     def on_input_device_changed(self, choice: str):
         """User selected a new input device."""
