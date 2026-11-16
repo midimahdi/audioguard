@@ -1299,11 +1299,11 @@ class AudioGuardApp:
                     row["del_btn"].configure(state=storage_ctrl_state)
                 if "day_buttons" in row and row["day_buttons"]:
                     for d_btn in row["day_buttons"].values():
-                        d_btn.configure(state=state_str)
+                        d_btn.configure(state=storage_ctrl_state)
 
         # 4. Profiles controls
         if hasattr(self, "add_profile_btn"):
-            self.add_profile_btn.configure(state=state_str)
+            self.add_profile_btn.configure(state=storage_ctrl_state)
 
     def _populate_profiles_list(self):
         """Populates the profiles container with cards for each configured profile."""
