@@ -189,6 +189,12 @@ class AudioEngine:
         return inputs, outputs
 
     @staticmethod
+    def get_input_devices() -> List[Dict[str, Any]]:
+        """Returns list of clean hardware input devices."""
+        inputs, _ = AudioEngine.get_audio_devices()
+        return inputs
+
+    @staticmethod
     def get_secondary_audio_devices(source_type: str = "desktop") -> List[Dict[str, Any]]:
         """
         Enumerates devices available for Track 2.
