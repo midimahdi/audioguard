@@ -13,6 +13,8 @@ env/
 build/
 dist/
 dist-installer/
+dist-dmg/
+*.dmg
 *.manifest
 *.spec
 
