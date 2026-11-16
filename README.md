@@ -20,7 +20,7 @@
 ---
 
 <a id="downloads"></a>
-## ⚡ Direct Downloads (Latest Release: v1.5.4)
+## ⚡ Direct Downloads (Latest Release: v1.5.5)
 
 Choose your operating system to start downloading immediately:
 
