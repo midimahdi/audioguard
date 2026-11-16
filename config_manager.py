@@ -969,7 +969,7 @@ def cleanup_old_backups(folder_path: str, retention_days: int, pattern: str = ""
 
     deleted_count = 0
 
-    # Extract custom static prefix from pattern if available (e.g. "Mosque_Lesson_" from "Mosque_Lesson_{date}")
+    # Extract custom static prefix from pattern if available (e.g. "Audio_Session_" from "Audio_Session_{date}")
     custom_prefix = ""
     if pattern:
         idx = pattern.find("{")

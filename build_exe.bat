@@ -52,7 +52,7 @@ echo =======================================================
 
 rem Create Desktop Shortcut via PowerShell
 echo Creating Windows Desktop Shortcut...
-powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([System.IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'MosqueAudioGuard.lnk')); $s.TargetPath = [System.IO.Path]::GetFullPath('dist\\MosqueAudioGuard\\MosqueAudioGuard.exe'); $s.Description = 'Mosque Audio Guard Backup System'; $s.Save()"
+powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([System.IO.Path]::Combine([Environment]::GetFolderPath('Desktop'), 'AudioGuard.lnk')); $s.TargetPath = [System.IO.Path]::GetFullPath('dist\\AudioGuard\\AudioGuard.exe'); $s.Description = 'AudioGuard Audio Backup System'; $s.Save()"
 
 echo Shortcut created on Windows Desktop.
 echo.

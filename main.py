@@ -2283,7 +2283,7 @@ class AudioGuardApp:
     # -------------------------------------------------------------
     def on_browse_folder(self):
         curr = self.config.get("backup_folder", "")
-        chosen = filedialog.askdirectory(initialdir=curr, title="Select Mosque Audio Backup Directory")
+        chosen = filedialog.askdirectory(initialdir=curr, title="Select Audio Backup Directory")
         if chosen:
             self.config.set("backup_folder", chosen)
             self.folder_entry.configure(state="normal")

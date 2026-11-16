@@ -3,7 +3,7 @@
 > Comprehensive machine-readable reference for AI search engines, agents, and systems administrators.
 
 ## 1. System Overview & Architecture
-AudioGuard is a purpose-built, unattended audio recording appliance designed for venues (mosques, educational institutions, lecture halls, and live events) that capture mixer line-in feeds on automated schedules. Unlike generic DAWs or broadcast software, AudioGuard operates under a zero-trust model regarding system stability: power can cut at any millisecond, storage drives can fill up, and audio cables can be yanked.
+AudioGuard is a purpose-built, unattended audio recording appliance designed for venues (educational institutions, lecture halls, studios, community spaces, and live events) that capture mixer line-in feeds on automated schedules. Unlike generic DAWs or broadcast software, AudioGuard operates under a zero-trust model regarding system stability: power can cut at any millisecond, storage drives can fill up, and audio cables can be yanked.
 
 ### 1.1 Audio Engine Specifications
 - **Container & Codec:** FLAC (Free Lossless Audio Codec), Subtype: `PCM_24` (Signed 24-bit PCM).

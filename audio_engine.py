@@ -373,7 +373,7 @@ class AudioEngine:
             left_rms = np.sqrt(np.mean(buffer[:, 0] ** 2))
             right_rms = np.sqrt(np.mean(buffer[:, 1] ** 2))
             
-            # Mosque Mixer Feed Logic:
+            # Mono Mixer Line-In Feed Logic:
             # If one channel is dead/silent (< -70 dBFS) while the other has signal,
             # duplicate the active channel to both ears without losing 6 dB of gain.
             if left_rms > SILENCE_THRESHOLD_RMS and right_rms <= SILENCE_THRESHOLD_RMS:
