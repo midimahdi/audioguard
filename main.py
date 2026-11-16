@@ -1566,8 +1566,9 @@ class AudioGuardApp:
         """Displays initial setup modal if this is the first launch on a clean machine."""
         if self.config.get("first_run_completed", False):
             return
-        if self.is_minimized_to_tray:
-            self.show_window_from_tray()
+        if getattr(self, "is_minimized_to_tray", False):
+            if hasattr(self, "show_window_from_tray"):
+                self.show_window_from_tray()
         self._show_onboarding_modal()
 
     def _show_onboarding_modal(self):
