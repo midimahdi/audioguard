@@ -557,18 +557,29 @@ class AudioGuardApp:
         self.action_btn.pack(fill="x")
 
     def _update_dashboard_summary(self):
-        """Updates the read-only summary card on the Dashboard."""
+        """Updates the read-only summary card on the Dashboard and meter headers."""
         # Mic Device & Secondary Track
         cur_mic = self.config.get("input_device_name", "")
+        if not cur_mic and hasattr(self, "input_device_combo"):
+            cur_mic = self.input_device_combo.get()
         if not cur_mic:
-            cur_mic = self.input_device_combo.get() if hasattr(self, "input_device_combo") else "Default"
+            cur_mic = "Default Audio Device"
+
+        # Update primary meter title: [Mic Name] (Audio 1)
+        if hasattr(self, "meter_title_lbl"):
+            self.meter_title_lbl.configure(text=f"{cur_mic} ({t('audio_one_tag')})")
 
         sec_enabled = self.config.get("secondary_track_enabled", False)
         if sec_enabled:
             sec_dev = self.config.get("secondary_device_name", "")
             if not sec_dev and hasattr(self, "secondary_device_combo"):
                 sec_dev = self.secondary_device_combo.get()
-            self.sum_mic_lbl.configure(text=f"🎤  {cur_mic}  |  🎧 {sec_dev or 'Track 2'}")
+            if not sec_dev:
+                sec_dev = "Secondary Device"
+            # Update secondary meter title: [Source Name] (Audio 2)
+            if hasattr(self, "sec_meter_title_lbl"):
+                self.sec_meter_title_lbl.configure(text=f"{sec_dev} ({t('audio_two_tag')})")
+            self.sum_mic_lbl.configure(text=f"🎤  {cur_mic} ({t('audio_one_tag')})  |  🎧 {sec_dev} ({t('audio_two_tag')})")
         else:
             self.sum_mic_lbl.configure(text=f"🎤  {t('sec_audio_device')} {cur_mic}")
 
@@ -2771,8 +2782,6 @@ class AudioGuardApp:
             self.nav_btn.configure(text=t("nav_settings") if self.current_view == "dashboard" else t("nav_dashboard"))
 
         # Dashboard View
-        if hasattr(self, "meter_title_lbl"):
-            self.meter_title_lbl.configure(text=t("meter_title"))
         self._update_status_banner()
         self._update_dashboard_summary()
 
@@ -2785,22 +2794,16 @@ class AudioGuardApp:
         # Settings View - Section 1.5 (Secondary Audio Track)
         if hasattr(self, "sec_secondary_lbl"):
             self.sec_secondary_lbl.configure(text=f"🎧  {t('sec_secondary_track')}")
-        if hasattr(self, "secondary_enabled_chk"):
-            self.secondary_enabled_chk.configure(text=t("opt_enable_secondary"))
-        if hasattr(self, "lbl_source_type"):
-            self.lbl_source_type.configure(text=t("lbl_source_type"))
-        if hasattr(self, "src_desktop_rb"):
-            self.src_desktop_rb.configure(text=t("opt_desktop_audio"))
-        if hasattr(self, "src_mic_rb"):
-            self.src_mic_rb.configure(text=t("opt_second_input"))
+        if hasattr(self, "remove_source_btn"):
+            self.remove_source_btn.configure(text=f"✕ {t('btn_remove_source')}")
+        if hasattr(self, "add_source_btn"):
+            self.add_source_btn.configure(text=f"+ {t('btn_add_audio_source')}")
         if hasattr(self, "lbl_packaging_mode"):
             self.lbl_packaging_mode.configure(text=t("lbl_packaging_mode"))
-        if hasattr(self, "pkg_sep_rb"):
-            self.pkg_sep_rb.configure(text=t("opt_separate_files"))
-        if hasattr(self, "pkg_single_rb"):
-            self.pkg_single_rb.configure(text=t("opt_single_multitrack"))
-        if hasattr(self, "sec_meter_lbl"):
-            self.sec_meter_lbl.configure(text=t("sec_meter_title"))
+        if hasattr(self, "packaging_combo"):
+            current_pkg = self.config.get("multitrack_mode", "separate")
+            self.packaging_combo.configure(values=[t("opt_separate_files"), t("opt_single_multitrack")])
+            self.packaging_combo.set(t("opt_single_multitrack") if current_pkg == "single" else t("opt_separate_files"))
 
         # Settings View - Section 2 (Schedules)
         if hasattr(self, "sec_sch_lbl"):

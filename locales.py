@@ -71,6 +71,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "sec_meter_title": "Secondary Level (Track 2):",
         "lbl_track1_level": "Audio Source 1 Level",
         "lbl_track2_level": "Audio Source 2 Level",
+        "audio_one_tag": "Audio 1",
+        "audio_two_tag": "Audio 2",
 
         # Settings Section 2: Schedules
         "sec_schedules": "Automated Daily Recording Schedules:",
@@ -243,6 +245,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "sec_meter_title": "مستوى المسار الثانوي (المسار 2):",
         "lbl_track1_level": "مستوى مصدر الصوت 1",
         "lbl_track2_level": "مستوى مصدر الصوت 2",
+        "audio_one_tag": "الصوت 1",
+        "audio_two_tag": "الصوت 2",
 
         # Settings Section 2: Schedules
         "sec_schedules": "جداول التسجيل الآلي اليومية:",
@@ -415,6 +419,8 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "sec_meter_title": "Niveau secondaire (Piste 2) :",
         "lbl_track1_level": "Niveau source audio 1",
         "lbl_track2_level": "Niveau source audio 2",
+        "audio_one_tag": "Audio 1",
+        "audio_two_tag": "Audio 2",
 
         # Settings Section 2: Schedules
         "sec_schedules": "Horaires d'enregistrement quotidien :",
