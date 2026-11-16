@@ -1,23 +1,20 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
 PackageIdentifier: MahdiDigital.AudioGuard
 PackageVersion: 1.5.5
-Platform:
-  - Windows.Desktop
+InstallerType: inno
+Scope: user
 InstallModes:
   - interactive
   - silent
   - silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: 2026-11-16
 Installers:
   - Architecture: x64
-    InstallerType: inno
-    Scope: user
     InstallerUrl: https://github.com/midimahdi/audioguard/releases/download/v1.5.5/AudioGuard-Setup-x64.exe
-    InstallerSha256: adb22daf0647f55b0cb7b14420956caf1c23bc4b7eb792b3f7d1c0f77aed5bc2
-    UpgradeBehavior: install
+    InstallerSha256: 169D59FEC7530FF41E6327B6BD6D5C44E0E86021A5C3CE406BE6CFB2530CBCD8
   - Architecture: x86
-    InstallerType: inno
-    Scope: user
     InstallerUrl: https://github.com/midimahdi/audioguard/releases/download/v1.5.5/AudioGuard-Setup-x86.exe
-    InstallerSha256: c45519c6e1cdd988b8a20183f6497e20ddb3ea85ce709ac182350508cb40e2b2
-    UpgradeBehavior: install
+    InstallerSha256: 3F4D14AEF93724F4C83AE25E23E6F92585377A9F8C79154AB519E4E7E5849BFE
 ManifestType: installer
-ManifestVersion: 1.6.0
+ManifestVersion: 1.10.0

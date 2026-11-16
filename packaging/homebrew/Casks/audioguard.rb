@@ -2,8 +2,8 @@ cask "audioguard" do
   arch arm: "AppleSilicon", intel: "Intel"
 
   version "1.5.5"
-  sha256 arm:   "4639d5aea20309b262f7c527c6fa02c668db2b76689c9d18d19dd3f7af2c7cc3",
-         intel: "6bc0884a013abf0e64fe19bd30ca521a6d4ae4a4282f1f1ae688fb2f263ae9be"
+  sha256 arm:   "f9e4c8a9a4e54d1777c75c5dd624e74e31598b8dac79fd8cb60290f36c4d18d1",
+         intel: "836fccc1d65ee781d167906c67ed83f69e690e7a3ecebff3bcb5a62d91ebd8e7"
 
   url "https://github.com/midimahdi/audioguard/releases/download/v#{version}/AudioGuard-macOS-#{arch}.dmg"
   name "AudioGuard"
