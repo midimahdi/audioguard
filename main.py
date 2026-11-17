@@ -704,32 +704,39 @@ class AudioGuardApp:
             corner_radius=6,
             border_width=1,
             border_color=COLOR_PANEL_BORDER,
-            width=135,
+            width=140,
             height=30
         )
         self.primary_meter_frame.pack(side="right")
         self.primary_meter_frame.pack_propagate(False)
 
-        prim_inner = ctk.CTkFrame(self.primary_meter_frame, fg_color="transparent")
-        prim_inner.pack(fill="both", expand=True, padx=8, pady=3)
-
-        prim_top = ctk.CTkFrame(prim_inner, fg_color="transparent")
-        prim_top.pack(fill="x")
-        self.primary_mini_lbl = ctk.CTkLabel(
-            prim_top,
-            text="-∞ dBFS",
-            font=ctk.CTkFont(size=9, weight="bold"),
-            text_color=COLOR_TEXT_MUTED
-        )
-        self.primary_mini_lbl.pack(side="right")
-
         self.primary_mini_canvas = tk.Canvas(
-            prim_inner,
-            height=6,
-            bg="#0D0E11",
+            self.primary_meter_frame,
+            height=24,
+            bg="#141417",
             highlightthickness=0
         )
-        self.primary_mini_canvas.pack(fill="x", pady=(2, 0))
+        self.primary_mini_canvas.pack(fill="both", expand=True, padx=6, pady=3)
+
+        # Pre-allocate visual dual-channel stereo meter elements (no numbers)
+        p_bar_h = 7
+        self.p_y_l = 3
+        self.p_y_r = 13
+        self.p_track_start = 13
+
+        self.primary_mini_canvas.create_text(1, self.p_y_l + p_bar_h // 2, text="L", fill="#71717A", font=("Helvetica", 7, "bold"), anchor="w")
+        self.primary_mini_canvas.create_text(1, self.p_y_r + p_bar_h // 2, text="R", fill="#71717A", font=("Helvetica", 7, "bold"), anchor="w")
+
+        self.p_track_l = self.primary_mini_canvas.create_rectangle(self.p_track_start, self.p_y_l, 1000, self.p_y_l + p_bar_h, fill="#1A1B20", outline="")
+        self.p_track_r = self.primary_mini_canvas.create_rectangle(self.p_track_start, self.p_y_r, 1000, self.p_y_r + p_bar_h, fill="#1A1B20", outline="")
+
+        self.p_bar_l_green = self.primary_mini_canvas.create_rectangle(self.p_track_start, self.p_y_l, self.p_track_start, self.p_y_l + p_bar_h, fill=COLOR_GREEN, outline="")
+        self.p_bar_l_amber = self.primary_mini_canvas.create_rectangle(self.p_track_start, self.p_y_l, self.p_track_start, self.p_y_l + p_bar_h, fill=COLOR_AMBER, outline="")
+        self.p_bar_l_red   = self.primary_mini_canvas.create_rectangle(self.p_track_start, self.p_y_l, self.p_track_start, self.p_y_l + p_bar_h, fill=COLOR_RED, outline="")
+
+        self.p_bar_r_green = self.primary_mini_canvas.create_rectangle(self.p_track_start, self.p_y_r, self.p_track_start, self.p_y_r + p_bar_h, fill=COLOR_GREEN, outline="")
+        self.p_bar_r_amber = self.primary_mini_canvas.create_rectangle(self.p_track_start, self.p_y_r, self.p_track_start, self.p_y_r + p_bar_h, fill=COLOR_AMBER, outline="")
+        self.p_bar_r_red   = self.primary_mini_canvas.create_rectangle(self.p_track_start, self.p_y_r, self.p_track_start, self.p_y_r + p_bar_h, fill=COLOR_RED, outline="")
 
         # Section 1.5: Secondary Audio Source (Track 2 Card)
         self.sec_track_container = ctk.CTkFrame(
@@ -785,32 +792,39 @@ class AudioGuardApp:
             corner_radius=6,
             border_width=1,
             border_color=COLOR_PANEL_BORDER,
-            width=135,
+            width=140,
             height=30
         )
         self.sec_meter_frame.pack(side="right")
         self.sec_meter_frame.pack_propagate(False)
 
-        sec_m_inner = ctk.CTkFrame(self.sec_meter_frame, fg_color="transparent")
-        sec_m_inner.pack(fill="both", expand=True, padx=8, pady=3)
-
-        sec_m_top = ctk.CTkFrame(sec_m_inner, fg_color="transparent")
-        sec_m_top.pack(fill="x")
-        self.sec_mini_lbl = ctk.CTkLabel(
-            sec_m_top,
-            text="-∞ dBFS",
-            font=ctk.CTkFont(size=9, weight="bold"),
-            text_color=COLOR_TEXT_MUTED
-        )
-        self.sec_mini_lbl.pack(side="right")
-
         self.sec_mini_canvas = tk.Canvas(
-            sec_m_inner,
-            height=6,
-            bg="#0D0E11",
+            self.sec_meter_frame,
+            height=24,
+            bg="#141417",
             highlightthickness=0
         )
-        self.sec_mini_canvas.pack(fill="x", pady=(2, 0))
+        self.sec_mini_canvas.pack(fill="both", expand=True, padx=6, pady=3)
+
+        # Pre-allocate secondary visual dual-channel stereo meter elements (no numbers)
+        s_bar_h = 7
+        self.s_y_l = 3
+        self.s_y_r = 13
+        self.s_track_start = 13
+
+        self.sec_mini_canvas.create_text(1, self.s_y_l + s_bar_h // 2, text="L", fill="#71717A", font=("Helvetica", 7, "bold"), anchor="w")
+        self.sec_mini_canvas.create_text(1, self.s_y_r + s_bar_h // 2, text="R", fill="#71717A", font=("Helvetica", 7, "bold"), anchor="w")
+
+        self.s_track_l = self.sec_mini_canvas.create_rectangle(self.s_track_start, self.s_y_l, 1000, self.s_y_l + s_bar_h, fill="#1A1B20", outline="")
+        self.s_track_r = self.sec_mini_canvas.create_rectangle(self.s_track_start, self.s_y_r, 1000, self.s_y_r + s_bar_h, fill="#1A1B20", outline="")
+
+        self.s_bar_l_green = self.sec_mini_canvas.create_rectangle(self.s_track_start, self.s_y_l, self.s_track_start, self.s_y_l + s_bar_h, fill=COLOR_GREEN, outline="")
+        self.s_bar_l_amber = self.sec_mini_canvas.create_rectangle(self.s_track_start, self.s_y_l, self.s_track_start, self.s_y_l + s_bar_h, fill=COLOR_AMBER, outline="")
+        self.s_bar_l_red   = self.sec_mini_canvas.create_rectangle(self.s_track_start, self.s_y_l, self.s_track_start, self.s_y_l + s_bar_h, fill=COLOR_RED, outline="")
+
+        self.s_bar_r_green = self.sec_mini_canvas.create_rectangle(self.s_track_start, self.s_y_r, self.s_track_start, self.s_y_r + s_bar_h, fill=COLOR_GREEN, outline="")
+        self.s_bar_r_amber = self.sec_mini_canvas.create_rectangle(self.s_track_start, self.s_y_r, self.s_track_start, self.s_y_r + s_bar_h, fill=COLOR_AMBER, outline="")
+        self.s_bar_r_red   = self.sec_mini_canvas.create_rectangle(self.s_track_start, self.s_y_r, self.s_track_start, self.s_y_r + s_bar_h, fill=COLOR_RED, outline="")
 
         # Output Packaging Mode Dropdown
         pkg_row = ctk.CTkFrame(sec_inner, fg_color="transparent")
@@ -1210,18 +1224,6 @@ class AudioGuardApp:
             command=self.on_manual_check_updates
         )
         self.btn_check_update_manual.pack(side="left", padx=(0, 10))
-
-        self.btn_run_onboard = ctk.CTkButton(
-            update_row,
-            text=f"🪄 {t('btn_setup_wizard')}",
-            width=130,
-            height=28,
-            fg_color="#2A2A30",
-            hover_color=COLOR_PANEL_BORDER,
-            font=ctk.CTkFont(size=11),
-            command=self._show_onboarding_modal
-        )
-        self.btn_run_onboard.pack(side="left", padx=(0, 10))
 
         self.update_status_lbl = ctk.CTkLabel(
             update_row,
@@ -2369,60 +2371,74 @@ class AudioGuardApp:
                 self.sec_dashboard_panel.pack_forget()
 
         elif self.current_view == "settings":
-            # Primary mini meter update
-            if hasattr(self, "primary_mini_canvas") and hasattr(self, "primary_mini_lbl"):
+            # Primary visual mini VU meter (dual stereo L/R bars, no numbers)
+            if hasattr(self, "primary_mini_canvas") and hasattr(self, "p_track_l"):
                 pw = self.primary_mini_canvas.winfo_width()
-                p_peak = max(l_peak, r_peak)
-                p_rms = max(l_rms, r_rms)
-                if pw > 10:
-                    self.primary_mini_canvas.delete("all")
-                    norm_rms = max(0.0, min(1.0, (p_rms + 60.0) / 60.0))
-                    norm_peak = max(0.0, min(1.0, (p_peak + 60.0) / 60.0))
-                    rms_px = int(norm_rms * pw)
-                    peak_px = int(norm_peak * pw)
-                    if rms_px > 0:
-                        self.primary_mini_canvas.create_rectangle(0, 0, rms_px, 6, fill="#10B981", outline="")
-                    if peak_px > rms_px:
-                        peak_col = "#EF4444" if p_peak >= -3.0 else ("#F59E0B" if p_peak >= -12.0 else "#10B981")
-                        self.primary_mini_canvas.create_line(peak_px, 0, peak_px, 6, fill=peak_col, width=2)
+                if pw > 30:
+                    track_w = pw - self.p_track_start - 3
+                    bar_h = 7
+                    self.primary_mini_canvas.coords(self.p_track_l, self.p_track_start, self.p_y_l, pw - 3, self.p_y_l + bar_h)
+                    self.primary_mini_canvas.coords(self.p_track_r, self.p_track_start, self.p_y_r, pw - 3, self.p_y_r + bar_h)
 
-                if p_peak <= -59.0:
-                    self.primary_mini_lbl.configure(text="-∞ dBFS", text_color=COLOR_TEXT_MUTED)
-                else:
-                    self.primary_mini_lbl.configure(
-                        text=f"{p_peak:.1f} dBFS",
-                        text_color="#EF4444" if p_peak >= -3.0 else ("#F59E0B" if p_peak >= -12.0 else "#10B981")
-                    )
+                    green_end = self.p_track_start + int(track_w * (42.0 / 60.0))
+                    amber_end = self.p_track_start + int(track_w * (54.0 / 60.0))
 
-            # Secondary mini meter update
-            if hasattr(self, "sec_mini_canvas") and hasattr(self, "sec_mini_lbl"):
-                if sec_enabled:
-                    sl_peak, sr_peak, sl_rms, sr_rms, _, _ = self.audio.get_secondary_levels()
-                    sw = self.sec_mini_canvas.winfo_width()
-                    s_peak = max(sl_peak, sr_peak)
-                    s_rms = max(sl_rms, sr_rms)
-                    if sw > 10:
-                        self.sec_mini_canvas.delete("all")
-                        norm_rms = max(0.0, min(1.0, (s_rms + 60.0) / 60.0))
-                        norm_peak = max(0.0, min(1.0, (s_peak + 60.0) / 60.0))
-                        rms_px = int(norm_rms * sw)
-                        peak_px = int(norm_peak * sw)
-                        if rms_px > 0:
-                            self.sec_mini_canvas.create_rectangle(0, 0, rms_px, 6, fill="#10B981", outline="")
-                        if peak_px > rms_px:
-                            peak_col = "#EF4444" if s_peak >= -3.0 else ("#F59E0B" if s_peak >= -12.0 else "#10B981")
-                            self.sec_mini_canvas.create_line(peak_px, 0, peak_px, 6, fill=peak_col, width=2)
+                    def calc_mini_p_segments(peak_db: float):
+                        norm = max(0.0, min(1.0, (peak_db + 60.0) / 60.0))
+                        px = self.p_track_start + int(norm * track_w)
+                        gw = min(px, green_end)
+                        aw = min(px, amber_end) if px > green_end else green_end
+                        rw = px if px > amber_end else amber_end
+                        return gw, aw, rw
 
-                    if s_peak <= -59.0:
-                        self.sec_mini_lbl.configure(text="-∞ dBFS", text_color=COLOR_TEXT_MUTED)
+                    plg, pla, plr = calc_mini_p_segments(l_peak)
+                    self.primary_mini_canvas.coords(self.p_bar_l_green, self.p_track_start, self.p_y_l, plg, self.p_y_l + bar_h)
+                    self.primary_mini_canvas.coords(self.p_bar_l_amber, green_end, self.p_y_l, pla, self.p_y_l + bar_h)
+                    self.primary_mini_canvas.coords(self.p_bar_l_red, amber_end, self.p_y_l, plr, self.p_y_l + bar_h)
+
+                    prg, pra, prr = calc_mini_p_segments(r_peak)
+                    self.primary_mini_canvas.coords(self.p_bar_r_green, self.p_track_start, self.p_y_r, prg, self.p_y_r + bar_h)
+                    self.primary_mini_canvas.coords(self.p_bar_r_amber, green_end, self.p_y_r, pra, self.p_y_r + bar_h)
+                    self.primary_mini_canvas.coords(self.p_bar_r_red, amber_end, self.p_y_r, prr, self.p_y_r + bar_h)
+
+            # Secondary visual mini VU meter (dual stereo L/R bars, no numbers)
+            if hasattr(self, "sec_mini_canvas") and hasattr(self, "s_track_l"):
+                sw = self.sec_mini_canvas.winfo_width()
+                if sw > 30:
+                    s_track_w = sw - self.s_track_start - 3
+                    s_bar_h = 7
+                    self.sec_mini_canvas.coords(self.s_track_l, self.s_track_start, self.s_y_l, sw - 3, self.s_y_l + s_bar_h)
+                    self.sec_mini_canvas.coords(self.s_track_r, self.s_track_start, self.s_y_r, sw - 3, self.s_y_r + s_bar_h)
+
+                    if sec_enabled:
+                        sl_peak, sr_peak, _, _, _, _ = self.audio.get_secondary_levels()
+                        s_green_end = self.s_track_start + int(s_track_w * (42.0 / 60.0))
+                        s_amber_end = self.s_track_start + int(s_track_w * (54.0 / 60.0))
+
+                        def calc_mini_s_segments(peak_db: float):
+                            norm = max(0.0, min(1.0, (peak_db + 60.0) / 60.0))
+                            px = self.s_track_start + int(norm * s_track_w)
+                            gw = min(px, s_green_end)
+                            aw = min(px, s_amber_end) if px > s_green_end else s_green_end
+                            rw = px if px > s_amber_end else s_amber_end
+                            return gw, aw, rw
+
+                        slg, sla, slr = calc_mini_s_segments(sl_peak)
+                        self.sec_mini_canvas.coords(self.s_bar_l_green, self.s_track_start, self.s_y_l, slg, self.s_y_l + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_l_amber, s_green_end, self.s_y_l, sla, self.s_y_l + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_l_red, s_amber_end, self.s_y_l, slr, self.s_y_l + s_bar_h)
+
+                        srg, sra, srr = calc_mini_s_segments(sr_peak)
+                        self.sec_mini_canvas.coords(self.s_bar_r_green, self.s_track_start, self.s_y_r, srg, self.s_y_r + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_r_amber, s_green_end, self.s_y_r, sra, self.s_y_r + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_r_red, s_amber_end, self.s_y_r, srr, self.s_y_r + s_bar_h)
                     else:
-                        self.sec_mini_lbl.configure(
-                            text=f"{s_peak:.1f} dBFS",
-                            text_color="#EF4444" if s_peak >= -3.0 else ("#F59E0B" if s_peak >= -12.0 else "#10B981")
-                        )
-                else:
-                    self.sec_mini_canvas.delete("all")
-                    self.sec_mini_lbl.configure(text="Disabled", text_color=COLOR_TEXT_MUTED)
+                        self.sec_mini_canvas.coords(self.s_bar_l_green, self.s_track_start, self.s_y_l, self.s_track_start, self.s_y_l + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_l_amber, self.s_track_start, self.s_y_l, self.s_track_start, self.s_y_l + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_l_red, self.s_track_start, self.s_y_l, self.s_track_start, self.s_y_l + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_r_green, self.s_track_start, self.s_y_r, self.s_track_start, self.s_y_r + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_r_amber, self.s_track_start, self.s_y_r, self.s_track_start, self.s_y_r + s_bar_h)
+                        self.sec_mini_canvas.coords(self.s_bar_r_red, self.s_track_start, self.s_y_r, self.s_track_start, self.s_y_r + s_bar_h)
 
         self.root.after(66, self._meter_ui_tick)
 
@@ -3046,8 +3062,6 @@ class AudioGuardApp:
             self.open_log_btn.configure(text=t("btn_open_log"))
         if hasattr(self, "btn_check_update_manual"):
             self.btn_check_update_manual.configure(text=t("btn_check_updates"))
-        if hasattr(self, "btn_run_onboard"):
-            self.btn_run_onboard.configure(text=f"🪄 {t('btn_setup_wizard')}")
         if hasattr(self, "btn_download_update"):
             self.btn_download_update.configure(text=t("btn_download_update"))
         if hasattr(self, "btn_release_notes"):
