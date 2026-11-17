@@ -686,13 +686,50 @@ class AudioGuardApp:
         )
         self.rescan_btn.pack(side="right")
 
+        # Primary Audio Device row with 1/3 right-aligned mini live meter
+        primary_input_row = ctk.CTkFrame(self.settings_scroll, fg_color="transparent")
+        primary_input_row.pack(fill="x", padx=16, pady=(0, 12))
+
         self.input_device_combo = ctk.CTkComboBox(
-            self.settings_scroll,
+            primary_input_row,
             values=["Searching audio devices..."],
             height=30,
             command=self.on_input_device_changed
         )
-        self.input_device_combo.pack(fill="x", padx=16, pady=(0, 12))
+        self.input_device_combo.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        self.primary_meter_frame = ctk.CTkFrame(
+            primary_input_row,
+            fg_color="#141417",
+            corner_radius=6,
+            border_width=1,
+            border_color=COLOR_PANEL_BORDER,
+            width=135,
+            height=30
+        )
+        self.primary_meter_frame.pack(side="right")
+        self.primary_meter_frame.pack_propagate(False)
+
+        prim_inner = ctk.CTkFrame(self.primary_meter_frame, fg_color="transparent")
+        prim_inner.pack(fill="both", expand=True, padx=8, pady=3)
+
+        prim_top = ctk.CTkFrame(prim_inner, fg_color="transparent")
+        prim_top.pack(fill="x")
+        self.primary_mini_lbl = ctk.CTkLabel(
+            prim_top,
+            text="-∞ dBFS",
+            font=ctk.CTkFont(size=9, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.primary_mini_lbl.pack(side="right")
+
+        self.primary_mini_canvas = tk.Canvas(
+            prim_inner,
+            height=6,
+            bg="#0D0E11",
+            highlightthickness=0
+        )
+        self.primary_mini_canvas.pack(fill="x", pady=(2, 0))
 
         # Section 1.5: Secondary Audio Source (Track 2 Card)
         self.sec_track_container = ctk.CTkFrame(
@@ -730,14 +767,50 @@ class AudioGuardApp:
         )
         self.remove_source_btn.pack(side="right")
 
-        # Secondary Device Dropdown (Unified: Mics + Desktop Audio)
+        # Secondary Device Dropdown row with 1/3 right-aligned mini live meter
+        sec_input_row = ctk.CTkFrame(sec_inner, fg_color="transparent")
+        sec_input_row.pack(fill="x", pady=(0, 8))
+
         self.secondary_device_combo = ctk.CTkComboBox(
-            sec_inner,
+            sec_input_row,
             values=["Searching audio devices..."],
             height=30,
             command=self.on_secondary_device_changed
         )
-        self.secondary_device_combo.pack(fill="x", pady=(0, 8))
+        self.secondary_device_combo.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        self.sec_meter_frame = ctk.CTkFrame(
+            sec_input_row,
+            fg_color="#141417",
+            corner_radius=6,
+            border_width=1,
+            border_color=COLOR_PANEL_BORDER,
+            width=135,
+            height=30
+        )
+        self.sec_meter_frame.pack(side="right")
+        self.sec_meter_frame.pack_propagate(False)
+
+        sec_m_inner = ctk.CTkFrame(self.sec_meter_frame, fg_color="transparent")
+        sec_m_inner.pack(fill="both", expand=True, padx=8, pady=3)
+
+        sec_m_top = ctk.CTkFrame(sec_m_inner, fg_color="transparent")
+        sec_m_top.pack(fill="x")
+        self.sec_mini_lbl = ctk.CTkLabel(
+            sec_m_top,
+            text="-∞ dBFS",
+            font=ctk.CTkFont(size=9, weight="bold"),
+            text_color=COLOR_TEXT_MUTED
+        )
+        self.sec_mini_lbl.pack(side="right")
+
+        self.sec_mini_canvas = tk.Canvas(
+            sec_m_inner,
+            height=6,
+            bg="#0D0E11",
+            highlightthickness=0
+        )
+        self.sec_mini_canvas.pack(fill="x", pady=(2, 0))
 
         # Output Packaging Mode Dropdown
         pkg_row = ctk.CTkFrame(sec_inner, fg_color="transparent")
@@ -1585,6 +1658,9 @@ class AudioGuardApp:
 
     def _show_onboarding_modal(self):
         """1-screen onboarding setup dialog with live VU meter and schedule configuration."""
+        if not self.audio.is_stream_active:
+            self.audio.start_input_stream()
+
         dlg = ctk.CTkToplevel(self.root)
         dlg.title(t("onboard_title"))
         dlg.geometry("520x600")
@@ -1763,7 +1839,10 @@ class AudioGuardApp:
                 if not dlg.winfo_exists():
                     active_flag[0] = False
                     return
-                peak, rms = self.audio.get_levels()
+                levels = self.audio.get_levels()
+                l_peak, r_peak, l_rms, r_rms = levels[0], levels[1], levels[2], levels[3]
+                peak = max(l_peak, r_peak)
+                rms = max(l_rms, r_rms)
                 w = test_canvas.winfo_width()
                 if w > 10:
                     test_canvas.delete("all")
@@ -1775,18 +1854,27 @@ class AudioGuardApp:
                     rms_px = _db_to_px(rms)
                     peak_px = _db_to_px(peak)
 
-                    test_canvas.create_rectangle(0, 0, rms_px, 12, fill="#10B981", outline="")
+                    if rms_px > 0:
+                        test_canvas.create_rectangle(0, 0, rms_px, 12, fill="#10B981", outline="")
                     if peak_px > rms_px:
-                        test_canvas.create_line(peak_px, 0, peak_px, 12, fill="#F59E0B", width=2)
+                        peak_col = "#EF4444" if peak >= -3.0 else ("#F59E0B" if peak >= -12.0 else "#10B981")
+                        test_canvas.create_line(peak_px, 0, peak_px, 12, fill=peak_col, width=2)
 
                     if peak <= -59.0:
                         test_db_lbl.configure(text="-∞ dBFS", text_color=COLOR_TEXT_MUTED)
                     else:
-                        test_db_lbl.configure(text=f"{peak:.1f} dBFS", text_color="#10B981" if peak < -6 else "#EF4444")
+                        test_db_lbl.configure(
+                            text=f"{peak:.1f} dBFS",
+                            text_color="#EF4444" if peak >= -3.0 else ("#F59E0B" if peak >= -12.0 else "#10B981")
+                        )
 
                 dlg.after(50, _modal_meter_loop)
-            except Exception:
-                active_flag[0] = False
+            except Exception as e:
+                logger.debug("Onboarding meter loop tick error: %s", e)
+                if dlg.winfo_exists():
+                    dlg.after(100, _modal_meter_loop)
+                else:
+                    active_flag[0] = False
 
         dlg.after(100, _modal_meter_loop)
 
@@ -2280,6 +2368,62 @@ class AudioGuardApp:
             elif hasattr(self, "sec_dashboard_panel") and self.sec_dashboard_panel.winfo_ismapped():
                 self.sec_dashboard_panel.pack_forget()
 
+        elif self.current_view == "settings":
+            # Primary mini meter update
+            if hasattr(self, "primary_mini_canvas") and hasattr(self, "primary_mini_lbl"):
+                pw = self.primary_mini_canvas.winfo_width()
+                p_peak = max(l_peak, r_peak)
+                p_rms = max(l_rms, r_rms)
+                if pw > 10:
+                    self.primary_mini_canvas.delete("all")
+                    norm_rms = max(0.0, min(1.0, (p_rms + 60.0) / 60.0))
+                    norm_peak = max(0.0, min(1.0, (p_peak + 60.0) / 60.0))
+                    rms_px = int(norm_rms * pw)
+                    peak_px = int(norm_peak * pw)
+                    if rms_px > 0:
+                        self.primary_mini_canvas.create_rectangle(0, 0, rms_px, 6, fill="#10B981", outline="")
+                    if peak_px > rms_px:
+                        peak_col = "#EF4444" if p_peak >= -3.0 else ("#F59E0B" if p_peak >= -12.0 else "#10B981")
+                        self.primary_mini_canvas.create_line(peak_px, 0, peak_px, 6, fill=peak_col, width=2)
+
+                if p_peak <= -59.0:
+                    self.primary_mini_lbl.configure(text="-∞ dBFS", text_color=COLOR_TEXT_MUTED)
+                else:
+                    self.primary_mini_lbl.configure(
+                        text=f"{p_peak:.1f} dBFS",
+                        text_color="#EF4444" if p_peak >= -3.0 else ("#F59E0B" if p_peak >= -12.0 else "#10B981")
+                    )
+
+            # Secondary mini meter update
+            if hasattr(self, "sec_mini_canvas") and hasattr(self, "sec_mini_lbl"):
+                if sec_enabled:
+                    sl_peak, sr_peak, sl_rms, sr_rms, _, _ = self.audio.get_secondary_levels()
+                    sw = self.sec_mini_canvas.winfo_width()
+                    s_peak = max(sl_peak, sr_peak)
+                    s_rms = max(sl_rms, sr_rms)
+                    if sw > 10:
+                        self.sec_mini_canvas.delete("all")
+                        norm_rms = max(0.0, min(1.0, (s_rms + 60.0) / 60.0))
+                        norm_peak = max(0.0, min(1.0, (s_peak + 60.0) / 60.0))
+                        rms_px = int(norm_rms * sw)
+                        peak_px = int(norm_peak * sw)
+                        if rms_px > 0:
+                            self.sec_mini_canvas.create_rectangle(0, 0, rms_px, 6, fill="#10B981", outline="")
+                        if peak_px > rms_px:
+                            peak_col = "#EF4444" if s_peak >= -3.0 else ("#F59E0B" if s_peak >= -12.0 else "#10B981")
+                            self.sec_mini_canvas.create_line(peak_px, 0, peak_px, 6, fill=peak_col, width=2)
+
+                    if s_peak <= -59.0:
+                        self.sec_mini_lbl.configure(text="-∞ dBFS", text_color=COLOR_TEXT_MUTED)
+                    else:
+                        self.sec_mini_lbl.configure(
+                            text=f"{s_peak:.1f} dBFS",
+                            text_color="#EF4444" if s_peak >= -3.0 else ("#F59E0B" if s_peak >= -12.0 else "#10B981")
+                        )
+                else:
+                    self.sec_mini_canvas.delete("all")
+                    self.sec_mini_lbl.configure(text="Disabled", text_color=COLOR_TEXT_MUTED)
+
         self.root.after(66, self._meter_ui_tick)
 
     # -------------------------------------------------------------
@@ -2419,15 +2563,19 @@ class AudioGuardApp:
 
     def on_input_device_changed(self, choice: str):
         """User selected a new primary audio source."""
-        for s in getattr(self, "unified_sources_cache", []):
+        sources = getattr(self, "unified_sources_cache", None) or self.audio.get_unified_audio_sources()
+        for s in sources:
             if s["display_name"] == choice:
                 if s.get("is_setup_needed", False):
                     self.show_mac_blackhole_guide()
                     saved = self.config.get("input_device_name", "")
-                    self.input_device_combo.set(saved or self.unified_sources_cache[0]["display_name"])
+                    if hasattr(self, "input_device_combo"):
+                        self.input_device_combo.set(saved or (sources[0]["display_name"] if sources else ""))
                     return
                 self.config.update(input_device_name=s["name"], input_host_api=s.get("hostapi", ""))
                 logger.info("Selected primary source: %s (%s, ID: %s)", s["name"], s.get("hostapi"), s.get("id"))
+                if hasattr(self, "input_device_combo"):
+                    self.input_device_combo.set(s["display_name"])
                 self.audio.start_input_stream()
                 self._update_dashboard_summary()
                 break
