@@ -1138,6 +1138,18 @@ class AudioGuardApp:
         )
         self.btn_check_update_manual.pack(side="left", padx=(0, 10))
 
+        self.btn_run_onboard = ctk.CTkButton(
+            update_row,
+            text=f"🪄 {t('btn_setup_wizard')}",
+            width=130,
+            height=28,
+            fg_color="#2A2A30",
+            hover_color=COLOR_PANEL_BORDER,
+            font=ctk.CTkFont(size=11),
+            command=self._show_onboarding_modal
+        )
+        self.btn_run_onboard.pack(side="left", padx=(0, 10))
+
         self.update_status_lbl = ctk.CTkLabel(
             update_row,
             text="",
@@ -2886,6 +2898,8 @@ class AudioGuardApp:
             self.open_log_btn.configure(text=t("btn_open_log"))
         if hasattr(self, "btn_check_update_manual"):
             self.btn_check_update_manual.configure(text=t("btn_check_updates"))
+        if hasattr(self, "btn_run_onboard"):
+            self.btn_run_onboard.configure(text=f"🪄 {t('btn_setup_wizard')}")
         if hasattr(self, "btn_download_update"):
             self.btn_download_update.configure(text=t("btn_download_update"))
         if hasattr(self, "btn_release_notes"):
