@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.6.1"
 
 # Logger setup
 logger = logging.getLogger("AudioGuard")
