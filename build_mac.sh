@@ -30,7 +30,16 @@ echo "[2/6] Running automated audio engine & crash resilience verification..."
 "$PYTHON" verify_engine.py
 
 # 3. Compile standalone macOS .app bundle via PyInstaller
-echo "[3/6] Compiling AudioGuard.app via PyInstaller..."
+echo "[3/6] Compiling ScreenCaptureKit helper & AudioGuard.app via PyInstaller..."
+mkdir -p bin/mac
+if [ -f "packaging/mac/audioguard-audio-tap.swift" ]; then
+  echo "Compiling universal audioguard-audio-tap helper..."
+  swiftc -O -target arm64-apple-macos13.0 packaging/mac/audioguard-audio-tap.swift -o /tmp/tap-arm64
+  swiftc -O -target x86_64-apple-macos13.0 packaging/mac/audioguard-audio-tap.swift -o /tmp/tap-x86_64
+  lipo -create /tmp/tap-arm64 /tmp/tap-x86_64 -output bin/mac/audioguard-audio-tap
+  chmod +x bin/mac/audioguard-audio-tap
+fi
+
 "$PYINSTALLER" --noconfirm --onedir --windowed \
   --name "AudioGuard" \
   --collect-all "customtkinter" \
@@ -39,12 +48,23 @@ echo "[3/6] Compiling AudioGuard.app via PyInstaller..."
   --collect-all "PIL" \
   main.py
 
+if [ -f "bin/mac/audioguard-audio-tap" ]; then
+  cp bin/mac/audioguard-audio-tap dist/AudioGuard.app/Contents/MacOS/audioguard-audio-tap
+  chmod +x dist/AudioGuard.app/Contents/MacOS/audioguard-audio-tap
+fi
+
 # 4. Inject macOS Security & App Nap Permissions into Info.plist
 echo "[4/6] Configuring Info.plist for CoreAudio & App Nap permissions..."
 PLIST_FILE="dist/AudioGuard.app/Contents/Info.plist"
 
 /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string 'AudioGuard requires microphone access to record lossless backup audio feeds.'" "$PLIST_FILE" 2>/dev/null || \
 /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription 'AudioGuard requires microphone access to record lossless backup audio feeds.'" "$PLIST_FILE"
+
+/usr/libexec/PlistBuddy -c "Add :NSSystemAudioUsageDescription string 'AudioGuard requires system audio recording to capture desktop audio.'" "$PLIST_FILE" 2>/dev/null || \
+/usr/libexec/PlistBuddy -c "Set :NSSystemAudioUsageDescription 'AudioGuard requires system audio recording to capture desktop audio.'" "$PLIST_FILE"
+
+/usr/libexec/PlistBuddy -c "Add :NSScreenCaptureUsageDescription string 'AudioGuard requires screen and system audio recording to capture desktop audio.'" "$PLIST_FILE" 2>/dev/null || \
+/usr/libexec/PlistBuddy -c "Set :NSScreenCaptureUsageDescription 'AudioGuard requires screen and system audio recording to capture desktop audio.'" "$PLIST_FILE"
 
 /usr/libexec/PlistBuddy -c "Add :NSAppSleepDisabled bool true" "$PLIST_FILE" 2>/dev/null || \
 /usr/libexec/PlistBuddy -c "Set :NSAppSleepDisabled true" "$PLIST_FILE"

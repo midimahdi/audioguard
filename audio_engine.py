@@ -55,6 +55,109 @@ def is_virtual_dummy(name: str) -> bool:
     n = name.lower()
     return any(kw in n for kw in VIRTUAL_DUMMY_KEYWORDS)
 
+
+def get_mac_audio_tap_binary() -> Optional[str]:
+    """Resolves the path to the audioguard-audio-tap binary on macOS."""
+    if sys.platform != "darwin":
+        return None
+    candidates = [
+        # Inside macOS App Bundle Contents/MacOS/
+        os.path.join(os.path.dirname(sys.executable), "audioguard-audio-tap"),
+        os.path.join(os.path.dirname(sys.executable), "bin", "mac", "audioguard-audio-tap"),
+        # Relative to audio_engine.py (source checkout)
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "mac", "audioguard-audio-tap"),
+        # Sys._MEIPASS (PyInstaller bundle)
+        os.path.join(getattr(sys, "_MEIPASS", ""), "bin", "mac", "audioguard-audio-tap"),
+        os.path.join(getattr(sys, "_MEIPASS", ""), "audioguard-audio-tap"),
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+class MacDesktopAudioStream:
+    """
+    Simulates a sounddevice.InputStream by consuming continuous 48kHz stereo float32
+    audio from the audioguard-audio-tap ScreenCaptureKit helper via stdout pipe.
+    """
+    def __init__(self, callback, blocksize: int = 1024, samplerate: int = 48000):
+        self.callback = callback
+        self.blocksize = blocksize or 1024
+        self.samplerate = samplerate or 48000
+        self.channels = 2
+        self.active = False
+        self._proc: Optional[subprocess.Popen] = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._helper_path = get_mac_audio_tap_binary()
+
+    def start(self):
+        if self.active:
+            return
+        if not self._helper_path or not os.path.exists(self._helper_path):
+            raise RuntimeError(f"Desktop audio tap helper binary not found: {self._helper_path}")
+
+        self._stop_event.clear()
+        try:
+            self._proc = subprocess.Popen(
+                [self._helper_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to launch desktop audio helper: {e}")
+
+        self.active = True
+        self._thread = threading.Thread(target=self._reader_loop, daemon=True, name="MacDesktopAudioReader")
+        self._thread.start()
+
+    def _reader_loop(self):
+        accum = bytearray()
+        bytes_per_block = self.blocksize * self.channels * 4
+        while not self._stop_event.is_set() and self._proc and self._proc.poll() is None:
+            try:
+                chunk = self._proc.stdout.read(4096)
+                if not chunk:
+                    if self._stop_event.is_set():
+                        break
+                    time.sleep(0.002)
+                    continue
+
+                accum.extend(chunk)
+                while len(accum) >= bytes_per_block:
+                    block_bytes = bytes(accum[:bytes_per_block])
+                    del accum[:bytes_per_block]
+                    indata = np.frombuffer(block_bytes, dtype=np.float32).reshape(-1, self.channels)
+                    self.callback(indata, len(indata), None, None)
+            except Exception as e:
+                logger.error("Error in MacDesktopAudioStream reader loop: %s", e)
+                break
+
+        self.active = False
+
+    def stop(self):
+        self.active = False
+        self._stop_event.set()
+        if self._proc:
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=0.5)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+            self._proc = None
+
+    def close(self):
+        self.stop()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=0.5)
+            self._thread = None
+
+
 class AudioEngine:
     def __init__(self, config_manager):
         self.config = config_manager
@@ -248,9 +351,21 @@ class AudioEngine:
         import platform
         os_name = platform.system()
 
-        if not has_loopback:
-            if os_name == "Darwin":
-                # macOS without virtual loopback driver installed
+        if os_name == "Darwin":
+            tap_bin = get_mac_audio_tap_binary()
+            if tap_bin:
+                sources.append({
+                    "id": -200,
+                    "name": "Desktop Audio (System Output)",
+                    "display_name": "Desktop Audio (System Output)",
+                    "hostapi": "Core Audio (ScreenCaptureKit)",
+                    "channels": 2,
+                    "default_samplerate": 48000,
+                    "is_desktop_audio": True,
+                    "is_setup_needed": False
+                })
+            elif not has_loopback:
+                # macOS without native tap or virtual loopback driver installed
                 sources.append({
                     "id": -99,
                     "name": "Desktop Audio (Setup BlackHole...)",
@@ -261,7 +376,8 @@ class AudioEngine:
                     "is_desktop_audio": True,
                     "is_setup_needed": True
                 })
-            elif os_name == "Windows":
+        elif not has_loopback:
+            if os_name == "Windows":
                 # Windows WASAPI loopback on default output / speakers
                 out_id = None
                 try:
@@ -449,7 +565,19 @@ class AudioEngine:
         Returns: (stream, actual_device_id, actual_sample_rate, error_message)
         """
         import platform
-        is_windows = platform.system() == "Windows"
+        os_name = platform.system()
+        is_windows = os_name == "Windows"
+
+        # Tier 0: macOS Native Desktop Audio Tap via ScreenCaptureKit
+        if (dev_id == -200 or (source and source.get("id") == -200)) and os_name == "Darwin":
+            try:
+                stream = MacDesktopAudioStream(callback=callback, blocksize=BLOCK_SIZE, samplerate=SAMPLE_RATE)
+                stream.start()
+                logger.info("Native macOS ScreenCaptureKit Desktop Audio stream opened at %d Hz", SAMPLE_RATE)
+                return stream, -200, SAMPLE_RATE, ""
+            except Exception as e:
+                logger.error("Failed to start MacDesktopAudioStream: %s", e)
+                return None, -200, SAMPLE_RATE, f"Desktop audio tap failed: {e}"
 
         try:
             dev_info = sd.query_devices(dev_id)
