@@ -76,12 +76,30 @@ def get_mac_audio_tap_binary() -> Optional[str]:
     return None
 
 
-class MacDesktopAudioStream:
+def get_win_audio_tap_binary() -> Optional[str]:
+    """Resolves the path to the audioguard-wasapi-tap.exe binary on Windows."""
+    if sys.platform != "win32":
+        return None
+    candidates = [
+        os.path.join(os.path.dirname(sys.executable), "audioguard-wasapi-tap.exe"),
+        os.path.join(os.path.dirname(sys.executable), "bin", "win", "audioguard-wasapi-tap.exe"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "win", "audioguard-wasapi-tap.exe"),
+        os.path.join(getattr(sys, "_MEIPASS", ""), "bin", "win", "audioguard-wasapi-tap.exe"),
+        os.path.join(getattr(sys, "_MEIPASS", ""), "audioguard-wasapi-tap.exe"),
+    ]
+    for path in candidates:
+        if path and os.path.isfile(path):
+            return path
+    return None
+
+
+class DesktopAudioTapStream:
     """
     Simulates a sounddevice.InputStream by consuming continuous 48kHz stereo float32
-    audio from the audioguard-audio-tap ScreenCaptureKit helper via stdout pipe.
+    audio from a native OS desktop-audio tap helper via stdout pipe
+    (macOS ScreenCaptureKit or Windows WASAPI loopback).
     """
-    def __init__(self, callback, blocksize: int = 1024, samplerate: int = 48000):
+    def __init__(self, callback, helper_path: Optional[str], blocksize: int = 1024, samplerate: int = 48000):
         self.callback = callback
         self.blocksize = blocksize or 1024
         self.samplerate = samplerate or 48000
@@ -90,7 +108,7 @@ class MacDesktopAudioStream:
         self._proc: Optional[subprocess.Popen] = None
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
-        self._helper_path = get_mac_audio_tap_binary()
+        self._helper_path = helper_path
 
     def start(self):
         if self.active:
@@ -99,18 +117,21 @@ class MacDesktopAudioStream:
             raise RuntimeError(f"Desktop audio tap helper binary not found: {self._helper_path}")
 
         self._stop_event.clear()
+        popen_kwargs: Dict[str, Any] = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "bufsize": 0,
+        }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
         try:
-            self._proc = subprocess.Popen(
-                [self._helper_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=0
-            )
+            self._proc = subprocess.Popen([self._helper_path], **popen_kwargs)
         except Exception as e:
             raise RuntimeError(f"Failed to launch desktop audio helper: {e}")
 
         self.active = True
-        self._thread = threading.Thread(target=self._reader_loop, daemon=True, name="MacDesktopAudioReader")
+        self._thread = threading.Thread(target=self._reader_loop, daemon=True, name="DesktopAudioTapReader")
         self._thread.start()
 
     def _reader_loop(self):
@@ -132,7 +153,7 @@ class MacDesktopAudioStream:
                     indata = np.frombuffer(block_bytes, dtype=np.float32).reshape(-1, self.channels)
                     self.callback(indata, len(indata), None, None)
             except Exception as e:
-                logger.error("Error in MacDesktopAudioStream reader loop: %s", e)
+                logger.error("Error in DesktopAudioTapStream reader loop: %s", e)
                 break
 
         self.active = False
@@ -156,6 +177,17 @@ class MacDesktopAudioStream:
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=0.5)
             self._thread = None
+
+
+class MacDesktopAudioStream(DesktopAudioTapStream):
+    """Backwards-compatible alias for macOS ScreenCaptureKit desktop audio tap."""
+    def __init__(self, callback, blocksize: int = 1024, samplerate: int = 48000):
+        super().__init__(
+            callback=callback,
+            helper_path=get_mac_audio_tap_binary(),
+            blocksize=blocksize,
+            samplerate=samplerate,
+        )
 
 
 class AudioEngine:
@@ -376,37 +408,30 @@ class AudioEngine:
                     "is_desktop_audio": True,
                     "is_setup_needed": True
                 })
-        elif not has_loopback:
-            if os_name == "Windows":
-                # Windows WASAPI loopback on default output / speakers
-                out_id = None
-                try:
-                    out_id = sd.default.device[1]
-                except Exception:
-                    pass
-                if out_id is None and outputs:
-                    out_id = outputs[0]["id"]
-                
+        elif os_name == "Windows":
+            tap_bin = get_win_audio_tap_binary()
+            if tap_bin:
                 sources.append({
-                    "id": out_id if out_id is not None else -100,
+                    "id": -201,
                     "name": "Desktop Audio (System Output)",
                     "display_name": "Desktop Audio (System Output)",
-                    "hostapi": "Windows WASAPI",
+                    "hostapi": "Windows WASAPI (Loopback)",
                     "channels": 2,
                     "default_samplerate": 48000,
                     "is_desktop_audio": True,
-                    "is_wasapi_loopback": True
+                    "is_wasapi_loopback": True,
+                    "is_setup_needed": False
                 })
-            else:
-                sources.append({
-                    "id": -101,
-                    "name": "Desktop Audio (Monitor)",
-                    "display_name": "Desktop Audio (Monitor)",
-                    "hostapi": "ALSA",
-                    "channels": 2,
-                    "default_samplerate": 48000,
-                    "is_desktop_audio": True
-                })
+        elif not has_loopback:
+            sources.append({
+                "id": -101,
+                "name": "Desktop Audio (Monitor)",
+                "display_name": "Desktop Audio (Monitor)",
+                "hostapi": "ALSA",
+                "channels": 2,
+                "default_samplerate": 48000,
+                "is_desktop_audio": True
+            })
 
         return sources
 
@@ -579,21 +604,30 @@ class AudioEngine:
                 logger.error("Failed to start MacDesktopAudioStream: %s", e)
                 return None, -200, SAMPLE_RATE, f"Desktop audio tap failed: {e}"
 
+        # Tier 0 (Windows): Native WASAPI Loopback Tap
+        if (dev_id == -201 or (source and (source.get("id") == -201 or source.get("is_wasapi_loopback")))) and is_windows:
+            try:
+                stream = DesktopAudioTapStream(
+                    callback=callback,
+                    helper_path=get_win_audio_tap_binary(),
+                    blocksize=BLOCK_SIZE,
+                    samplerate=SAMPLE_RATE,
+                )
+                stream.start()
+                logger.info("Native Windows WASAPI Loopback Desktop Audio stream opened at %d Hz", SAMPLE_RATE)
+                return stream, -201, SAMPLE_RATE, ""
+            except Exception as e:
+                logger.error("Failed to start Windows WASAPI DesktopAudioTapStream: %s", e)
+                return None, -201, SAMPLE_RATE, f"Windows desktop audio tap failed: {e}"
+
         try:
             dev_info = sd.query_devices(dev_id)
         except Exception as e:
             return None, dev_id, SAMPLE_RATE, f"Device #{dev_id} query failed: {e}"
 
         is_wasapi_loopback = False
-        if is_windows and (source.get("is_wasapi_loopback") or dev_info.get("max_input_channels", 0) == 0):
-            is_wasapi_loopback = True
-
-        if is_wasapi_loopback:
-            input_channels = min(2, dev_info.get("max_output_channels", 2))
-            extra_settings = sd.WasapiSettings(loopback=True)
-        else:
-            input_channels = min(2, dev_info.get("max_input_channels", 0))
-            extra_settings = None
+        input_channels = min(2, dev_info.get("max_input_channels", 0))
+        extra_settings = None
 
         if input_channels < 1:
             return None, dev_id, SAMPLE_RATE, f"Device #{dev_id} has 0 input channels."
