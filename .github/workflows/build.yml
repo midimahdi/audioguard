@@ -49,6 +49,8 @@ jobs:
           pyinstaller --noconfirm --onedir --windowed --noupx `
             --version-file "version_info.txt" `
             --name "AudioGuard" `
+            --add-binary "bin\win\audioguard-wasapi-tap.exe;bin\win" `
+            --add-data "assets;assets" `
             --collect-all "customtkinter" `
             --collect-all "sounddevice" `
             --collect-all "soundfile" `
@@ -60,6 +62,8 @@ jobs:
           pyinstaller --noconfirm --onefile --windowed --noupx `
             --version-file "version_info.txt" `
             --name "AudioGuard-Portable-${{ matrix.arch }}" `
+            --add-binary "bin\win\audioguard-wasapi-tap.exe;bin\win" `
+            --add-data "assets;assets" `
             --collect-all "customtkinter" `
             --collect-all "sounddevice" `
             --collect-all "soundfile" `
