@@ -309,6 +309,10 @@ class AudioEngine:
                     continue
                 
                 api_name = hostapis[dev["hostapi"]]["name"] if dev["hostapi"] < len(hostapis) else "Unknown"
+                # Skip raw Windows WDM-KS kernel-streaming pins: they expose unplugged
+                # motherboard jacks (Line In, Mic input, Stereo Mix) that WASAPI/MME hide.
+                if api_name == "Windows WDM-KS":
+                    continue
                 prio = api_priority.get(api_name, 99)
 
                 # Match against existing hardware entries (exact, substring, or first 24 chars)

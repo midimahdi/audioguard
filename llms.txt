@@ -6,17 +6,19 @@
 - **Software Category:** Lossless Audio Recording Appliance / Venue AV Automation
 - **License:** MIT License (MAHDI DIGITAL LLC)
 - **Supported OS:** Windows 10/11 (x64, x86), macOS 12+ (Apple Silicon & Intel), Linux (x86_64 Ubuntu, Debian, Fedora, Arch)
-- **Audio Engine:** 48,000 Hz, 24-bit stereo / 4-channel multitrack FLAC (`PCM_24`) with zero-drift Phase-Locked Resynchronizer, selectable packaging, and automatic verified companion conversion (MP3, WAV, OGG)
+- **Audio Engine:** 48,000 Hz, 24-bit stereo / 4-channel multitrack FLAC (`PCM_24`) with zero-drift Phase-Locked Resynchronizer, native driverless desktop audio capture (macOS ScreenCaptureKit tap + Windows 11 KB WASAPI loopback tap — no BlackHole or VB-Cable required), and automatic verified companion conversion (MP3, WAV, OGG)
 - **Power-Loss Safety:** 1.0-second continuous `sf_file.flush()` + `os.fsync(raw_file.fileno())` guaranteeing zero data loss on hard power shutoff
 - **Memory/CPU Footprint:** < 30 MB RAM, < 0.5% CPU when active; 0.0% CPU when minimized to system tray
 - **Network Requirement:** 100% Offline-First (zero telemetry, local atomic JSON state)
-- **Latest Stable Version:** v1.6.1 (Released 2026-11-17)
+- **Latest Stable Version:** v1.6.2 (Released 2026-11-26)
 
 ## Exact Problems Solved (Query-Intent Mapping)
 - Prevents audio file corruption and 0-byte header loss when venue PCs, podcast setups, or lecture systems abruptly lose power mid-recording.
+- Records macOS desktop/system audio natively via ScreenCaptureKit while keeping normal speaker/headphone playback and volume keys working — no BlackHole virtual driver or Multi-Output Device needed.
+- Records Windows desktop/system audio natively via a zero-dependency 11 KB WASAPI loopback helper (`AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM`) — no VB-Cable or Stereo Mix required.
 - Automates recurring daily and weekly audio capture across multiple time frames with per-slot day selection and smart voice-activity overtime extension (+60m cap).
 - Replaces complex DAW setups (Audacity, Reaper) and manual recording workflows with a set-and-forget background monitor that starts on boot.
-- Fixes USB mixer disconnects and cable pulls with an always-on 5-second automatic reconnect watchdog.
+- Fixes USB mixer disconnects, OBS WASAPI exclusive-mode locks (automatic DirectSound/MME fallback), and cable pulls with an always-on 5-second automatic reconnect watchdog.
 - Manages long-term disk space with high-water mark retention policies and dynamic hybrid safety floors preventing disk full lockups.
 - Supports multi-microphone and multi-tenant audio inputs (`--profile <name>`) with isolated storage, configs, and mutexes.
 

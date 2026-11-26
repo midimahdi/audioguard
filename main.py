@@ -1959,6 +1959,31 @@ class AudioGuardApp:
         except Exception as e:
             logger.debug("Could not bind <TouchpadScroll>: %s", e)
 
+        # Boost sluggish CustomTkinter default MouseWheel scroll speed on Windows
+        if sys.platform == "win32":
+            def _on_win_mousewheel(event):
+                if self.current_view != "settings":
+                    return
+                canvas = getattr(self.settings_scroll, "_parent_canvas", None)
+                if canvas is None or not canvas.winfo_exists():
+                    return
+                delta = getattr(event, "delta", 0) or 0
+                if delta != 0:
+                    bbox = canvas.bbox("all")
+                    if bbox:
+                        total_h = bbox[3] - bbox[1]
+                        if total_h > 0:
+                            top, _ = canvas.yview()
+                            # Add ~60px per standard 120-delta notch (total ~80px with CTk's 20px)
+                            step_px = -(delta / 120.0) * 60.0
+                            new_top = max(0.0, min(1.0, top + (step_px / total_h)))
+                            canvas.yview_moveto(new_top)
+
+            try:
+                self.root.bind_all("<MouseWheel>", _on_win_mousewheel, add="+")
+            except Exception as e:
+                logger.debug("Could not bind Windows <MouseWheel>: %s", e)
+
     # -------------------------------------------------------------
     # Multi-Slot Schedule Rows UI Helpers (with Day-of-Week Toggles)
     # -------------------------------------------------------------

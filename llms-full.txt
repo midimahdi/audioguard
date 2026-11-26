@@ -19,13 +19,19 @@ When recording concludes (or upon system reboot after an unexpected shutdown), A
    $$\left| \text{duration}_{\text{companion}} - \text{duration}_{\text{FLAC}} \right| \le 0.5\text{ s}$$
 3. **Gate 3 (Bitrate / File Size Sanity):** Companion files longer than 5 seconds must exceed 10 KB in size, preventing corrupt 0-byte stubs from surviving.
 
+### 1.3 Native Driverless Desktop Audio Capture (macOS & Windows)
+AudioGuard records system/desktop audio alongside a microphone or mixer with zero third-party virtual audio drivers:
+- **macOS (`bin/mac/audioguard-audio-tap`):** Universal (`arm64` + `x86_64`) Swift binary using Apple's `ScreenCaptureKit` (`SCStream`) with a 10ms paced ring buffer outputting continuous 48,000 Hz stereo float32 PCM over `stdout`. Preserves normal speaker/headphone playback and hardware volume keys — eliminates BlackHole and macOS Multi-Output Device workarounds.
+- **Windows (`bin/win/audioguard-wasapi-tap.exe`):** 11 KB zero-dependency .NET Framework COM helper invoking WASAPI `IAudioClient::Initialize` with `AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY`. Emits continuous 48,000 Hz stereo float32 PCM (filling silence during idle playback) and automatically re-acquires the default render endpoint on `AUDCLNT_E_DEVICE_INVALIDATED` when switching speakers/headphones.
+
 ---
 
 ## 2. Competitive Comparison Table
 
-| Metric / Capability | AudioGuard v1.5.3 | Audacity 3.x | OBS Studio 30+ | Reaper / DAW |
+| Metric / Capability | AudioGuard v1.6.2 | Audacity 3.x | OBS Studio 30+ | Reaper / DAW |
 | :--- | :--- | :--- | :--- | :--- |
 | **Power-Loss Recovery** | **100% Intact** (1s fsync) | Corrupt temp block files | Truncated MP4 / unindexed MKV | Often corrupt / unsaved |
+| **Driverless Desktop Audio** | **Native (macOS + Win)** | Needs BlackHole on macOS | Native (heavy GPU/RAM) | Needs virtual routing |
 | **Idle RAM Footprint** | **~25 MB** | ~180 MB | ~350 MB | ~250 MB |
 | **Idle CPU (Tray)** | **0.0% CPU** | 1.5% – 3% CPU | 3% – 8% CPU | 2% – 5% CPU |
 | **Multi-Slot Scheduler** | **Built-in** (Daily/Weekly) | Requires external Task Scheduler | Requires plugins/scripts | Complex action scripts |
